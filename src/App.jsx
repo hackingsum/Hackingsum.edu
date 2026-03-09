@@ -1,5 +1,5 @@
 
-
+// ================================================================
 
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
@@ -20,7 +20,7 @@ import {
 //  🔴 APNA FIREBASE CONFIG YAHAN DAALO
 // ================================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
+apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
 
   authDomain: "hackingsum-edu.firebaseapp.com",
 
@@ -44,7 +44,7 @@ const db   = getFirestore(firebaseApp);
 //  To remove an admin: delete their entry
 // ================================================================
 const ADMINS = [
-  { email: "shakti@hackingsum.edu",  password: "Heartless$12"       },
+ { email: "shakti@hackingsum.edu",  password: "Heartless$12"},
   { email: "bihar@hackingsum.edu", password: "Bihar@sarkar" }, // ← uncomment to add
 ];
 
@@ -890,10 +890,16 @@ function AuthPage({initMode,setPage,setUser}){
         setLoading(false);return;
       }
       if(mode==="login"){
+        // Admin login — sign in via Firebase Auth so Firestore rules work
         if(isAdmin(form.email, form.password)){
-          const adminEntry = ADMINS.find(a=>a.email===form.email);
-          setUser({uid:"admin",name:"Admin",email:form.email,role:"admin"});
-          setPage("admin");setLoading(false);return;
+          try{
+            const res = await signInWithEmailAndPassword(auth, form.email, form.password);
+            setUser({uid:res.user.uid, name:"Admin", email:form.email, role:"admin"});
+          }catch(e){
+            // Admin not in Firebase Auth yet — still allow local access (Firestore writes may fail)
+            setUser({uid:"admin-local", name:"Admin", email:form.email, role:"admin"});
+          }
+          setPage("admin"); setLoading(false); return;
         }
         const res=await signInWithEmailAndPassword(auth,form.email,form.password);
         const snap=await getDoc(doc(db,"users",res.user.uid));
@@ -2299,6 +2305,12 @@ export default function App(){
   useEffect(()=>{
     return onAuthStateChanged(auth,async fbUser=>{
       if(fbUser){
+        // Check if this email belongs to an admin
+        if(ADMINS.some(a=>a.email===fbUser.email)){
+          setUser({uid:fbUser.uid, name:"Admin", email:fbUser.email, role:"admin"});
+          return;
+        }
+        // Normal student
         const snap=await getDoc(doc(db,"users",fbUser.uid));
         const p=snap.exists()?snap.data():{};
         setUser({uid:fbUser.uid,name:fbUser.displayName||p.name||"Student",email:fbUser.email,
