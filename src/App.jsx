@@ -19,7 +19,7 @@ import {
 //  🔴 APNA FIREBASE CONFIG YAHAN DAALO
 // ================================================================
 const firebaseConfig = {
-apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
+  apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
 
   authDomain: "hackingsum-edu.firebaseapp.com",
 
@@ -247,8 +247,16 @@ select.inp option{background:${T.bg3};}
 .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(12px,2vw,20px);}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,22px);}
 .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(12px,2vw,18px);}
-.grid-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(260px,30vw,340px),1fr));gap:clamp(14px,2vw,22px);}
-.grid-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(140px,18vw,200px),1fr));gap:clamp(10px,1.5vw,16px);}
+.grid-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:clamp(14px,2vw,22px);}
+.grid-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:clamp(10px,1.5vw,16px);}
+/* Dashboard menu grid */
+.dash-menu{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(10px,1.5vw,16px);}
+/* Stats mini grid */
+.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(8px,1.5vw,14px);}
+/* Resume tips grid */
+.tips-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(12px,2vw,18px);}
+/* Continue learning grid */
+.continue-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(10px,1.8vw,16px);}
 
 /* Watch layout */
 .watch-layout{display:grid;grid-template-columns:1fr 340px;gap:clamp(14px,2vw,24px);align-items:start;}
@@ -267,6 +275,10 @@ select.inp option{background:${T.bg3};}
   .hero-right{flex:0 0 340px;width:340px;}
   .grid-4{grid-template-columns:repeat(2,1fr);}
   .dash-layout{grid-template-columns:1fr;}
+  .dash-menu{grid-template-columns:repeat(4,1fr);}
+  .dash-stats{grid-template-columns:repeat(4,1fr);}
+  .tips-grid{grid-template-columns:repeat(2,1fr);}
+  .continue-grid{grid-template-columns:repeat(2,1fr);}
   .watch-layout{grid-template-columns:1fr;}
   .admin-split{grid-template-columns:1fr;}
   .footer-grid{grid-template-columns:1fr 1fr;}
@@ -291,14 +303,19 @@ select.inp option{background:${T.bg3};}
   .hide-mob{display:none !important;}
   .show-mob{display:flex !important;}
   .admin-split{grid-template-columns:1fr;}
+  /* Dashboard menu — 2 columns on mobile */
+  .dash-menu{grid-template-columns:repeat(2,1fr);}
+  /* Stats — 2 columns on mobile */
+  .dash-stats{grid-template-columns:repeat(2,1fr);}
+  /* Resume tips — 1 column on mobile */
+  .tips-grid{grid-template-columns:1fr;}
+  /* Continue grid — 1 column on mobile */
+  .continue-grid{grid-template-columns:1fr;}
   /* Better touch targets */
   .btn-p,.btn-s,.btn-g{min-height:44px;}
-  .inp{min-height:44px;font-size:16px !important;} /* prevents iOS zoom */
-  /* Cards full width on mobile */
+  .inp{min-height:44px;font-size:16px !important;}
   .card{border-radius:12px;}
-  /* Page padding tighter */
   .page{padding-left:14px;padding-right:14px;}
-  /* Section padding reduced */
   .sec{padding-top:clamp(40px,8vw,60px);padding-bottom:clamp(40px,8vw,60px);}
 }
 
@@ -313,6 +330,33 @@ select.inp option{background:${T.bg3};}
   .grid-4{grid-template-columns:1fr 1fr;}
   .footer-grid{grid-template-columns:1fr;}
   .auth-card{padding:24px 18px !important;}
+  .dash-menu{grid-template-columns:repeat(2,1fr) !important;}
+  .dash-stats{grid-template-columns:repeat(2,1fr) !important;}
+}
+
+/* ---- ABOUT PAGE RESPONSIVE ---- */
+@media(max-width:768px){
+  .about-numbers{grid-template-columns:repeat(3,1fr) !important;}
+  .about-mission{grid-template-columns:1fr !important;}
+  .about-tech{grid-template-columns:repeat(2,1fr) !important;}
+}
+@media(max-width:480px){
+  .about-numbers{grid-template-columns:repeat(2,1fr) !important;}
+  .about-tech{grid-template-columns:1fr 1fr !important;}
+}
+
+/* ---- QUIZ COURSE GRID ---- */
+@media(max-width:1024px){
+  .quiz-course-grid{grid-template-columns:repeat(2,1fr) !important;}
+}
+@media(max-width:600px){
+  .quiz-course-grid{grid-template-columns:1fr !important;}
+}
+
+/* ---- JOB TABS ---- */
+@media(max-width:600px){
+  .job-tabs{flex-direction:column !important;}
+  .job-tabs button{width:100% !important;}
 }
 
 /* ---- NAV MOBILE ---- */
@@ -1082,104 +1126,196 @@ function DashboardPage({user,courses,setPage,setWatch}){
   const inProg=courses.filter(c=>{const w=(prog[c.id]||[]).length;return w>0&&w<c.videos.length;});
   const done=courses.filter(c=>c.videos.length>0&&c.videos.every(v=>(prog[c.id]||[]).includes(v.id)));
 
+  const MENU=[
+    {icon:"📚",label:"Courses",desc:"All video courses",pg:"courses",color:T.accent},
+    {icon:"🎬",label:"My Learning",desc:"Track your progress",pg:"my-learning",color:T.blue},
+    {icon:"🧠",label:"Quiz",desc:"Test yourself",pg:"quiz",color:T.pink},
+    {icon:"📝",label:"Notes",desc:"Study material",pg:"notes",color:T.purple},
+    {icon:"🏆",label:"Leaderboard",desc:"Top students",pg:"leaderboard",color:T.amber},
+    {icon:"💼",label:"Job Placement",desc:"Resume & interview",pg:"placement",color:T.cyan},
+    {icon:"🔔",label:"Notifications",desc:"Latest updates",pg:"notifications",color:"#f59e0b"},
+    {icon:"👤",label:"Profile",desc:"Edit your profile",pg:"profile",color:"#a855f7"},
+  ];
+
   if(load)return(
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"80vh",flexDirection:"column",gap:16}}>
-      <Spinner size={32}/><p style={{color:T.muted,fontSize:14}}>Loading dashboard...</p>
+      <Spinner size={32}/><p style={{color:T.muted,fontSize:14}}>Loading...</p>
     </div>
   );
 
   return(
-    <div className="page" style={{maxWidth:1200,margin:"0 auto"}}>
-      <div style={{marginBottom:"clamp(24px,3vw,36px)"}} className="afu">
-        <div className="stag">Dashboard</div>
-        <h1 style={{fontWeight:800,fontSize:"clamp(24px,4vw,40px)",letterSpacing:"-1.5px"}}>
-          Welcome back, <span className="gt2">{user?.name?.split(" ")[0]}</span> 👋
-        </h1>
-        <p style={{color:T.muted2,fontSize:14,marginTop:6}}>Your progress is synced to Firebase in real-time.</p>
+    <div className="page" style={{maxWidth:1100,margin:"0 auto"}}>
+
+      {/* ── GREETING ── */}
+      <div className="afu" style={{marginBottom:"clamp(22px,3vw,36px)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"clamp(14px,2.5vw,22px)",flexWrap:"wrap"}}>
+          {/* Avatar */}
+          <div style={{width:"clamp(52px,8vw,68px)",height:"clamp(52px,8vw,68px)",borderRadius:"50%",flexShrink:0,
+            background:`linear-gradient(135deg,${user?.avatarColor||T.accent},${T.blue})`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontWeight:800,fontSize:"clamp(20px,3.5vw,28px)",color:T.bg,
+            boxShadow:`0 0 0 3px ${T.bg}, 0 0 0 5px ${user?.avatarColor||T.accent}44`}}>
+            {user?.name?.[0]?.toUpperCase()||"S"}
+          </div>
+          <div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:"clamp(9px,1.2vw,11px)",
+              color:T.accent,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>
+              Student Dashboard
+            </div>
+            <h1 style={{fontWeight:800,fontSize:"clamp(20px,3.5vw,34px)",letterSpacing:"-1px",lineHeight:1.1}}>
+              Welcome back, <span className="gt2">{user?.name?.split(" ")[0]||"Student"}</span> 👋
+            </h1>
+          </div>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid-4" style={{marginBottom:"clamp(18px,3vw,28px)"}}>
+      {/* ── PROGRESS BANNER ── */}
+      <div className="card afu" style={{padding:"clamp(16px,3vw,28px)",marginBottom:"clamp(18px,3vw,28px)",
+        background:`linear-gradient(135deg,${T.accent}08,${T.blue}05)`,
+        border:`1px solid ${T.accent}22`,display:"flex",alignItems:"center",
+        gap:"clamp(16px,3vw,28px)",flexWrap:"wrap"}}>
+        <ProgressRing pct={pct} size={80} stroke={7} color={T.accent}/>
+        <div style={{flex:1,minWidth:160}}>
+          <div style={{fontWeight:800,fontSize:"clamp(14px,2vw,18px)",marginBottom:6}}>Overall Progress</div>
+          <div style={{height:8,background:T.border,borderRadius:99,marginBottom:8,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,
+              background:`linear-gradient(90deg,${T.accent},${T.blue})`,
+              borderRadius:99,transition:"width 1.2s ease"}}/>
+          </div>
+          <div style={{fontSize:"clamp(11px,1.3vw,13px)",color:T.muted2}}>
+            <span style={{color:T.accent,fontWeight:700}}>{watchedV}</span> of <span style={{fontWeight:600}}>{totalV}</span> videos watched
+            &nbsp;·&nbsp;
+            <span style={{color:T.success,fontWeight:700}}>{done.length}</span> course{done.length!==1?"s":""} completed
+          </div>
+        </div>
+        {pct===0&&(
+          <button className="btn-p" onClick={()=>setPage("courses")}
+            style={{padding:"10px 22px",fontSize:13,flexShrink:0,whiteSpace:"nowrap"}}>
+            Start Learning →
+          </button>
+        )}
+      </div>
+
+      {/* ── BIG MENU GRID ── */}
+      <div style={{fontWeight:800,fontSize:"clamp(15px,2vw,18px)",marginBottom:"clamp(12px,2vw,18px)",
+        color:T.text,letterSpacing:"-0.5px"}}>
+        📌 Quick Navigation
+      </div>
+      <div className="dash-menu" style={{marginBottom:"clamp(22px,3vw,36px)"}}>
+        {MENU.map((m,i)=>(
+          <button key={m.pg} onClick={()=>setPage(m.pg)}
+            style={{
+              background:T.card,
+              border:"1.5px solid "+T.border,
+              borderRadius:16,
+              padding:"clamp(16px,2.5vw,22px) clamp(12px,1.5vw,16px)",
+              cursor:"pointer",
+              display:"flex",flexDirection:"column",
+              alignItems:"center",
+              gap:"clamp(6px,1.2vw,10px)",
+              textAlign:"center",
+              transition:"all .2s ease",
+              animation:"fadeUp .4s ease "+(i*.05)+"s both",
+              minWidth:0,overflow:"hidden",
+            }}
+            onMouseEnter={e=>{
+              e.currentTarget.style.borderColor=m.color;
+              e.currentTarget.style.transform="translateY(-4px)";
+              e.currentTarget.style.boxShadow=`0 12px 32px ${m.color}22`;
+              e.currentTarget.style.background=`${m.color}08`;
+            }}
+            onMouseLeave={e=>{
+              e.currentTarget.style.borderColor=T.border;
+              e.currentTarget.style.transform="translateY(0)";
+              e.currentTarget.style.boxShadow="none";
+              e.currentTarget.style.background=T.card;
+            }}>
+            {/* Icon circle */}
+            <div style={{
+              width:"clamp(44px,7vw,58px)",height:"clamp(44px,7vw,58px)",
+              borderRadius:"50%",
+              background:`${m.color}15`,
+              border:`1.5px solid ${m.color}33`,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:"clamp(20px,3.5vw,26px)",
+              flexShrink:0,
+            }}>
+              {m.icon}
+            </div>
+            <div>
+              <div style={{fontWeight:800,fontSize:"clamp(12px,1.6vw,14px)",color:T.text,marginBottom:3}}>
+                {m.label}
+              </div>
+              <div style={{fontSize:"clamp(10px,1.2vw,11px)",color:T.muted,lineHeight:1.4}}>
+                {m.desc}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* ── STATS ROW ── */}
+      <div className="dash-stats" style={{marginBottom:"clamp(22px,3vw,36px)"}}>
         {[
-          {l:"Total Courses",v:courses.length,i:"📚",c:T.accent},
-          {l:"Videos Watched",v:`${watchedV}/${totalV}`,i:"🎥",c:T.blue},
-          {l:"Progress",v:`${pct}%`,i:"📈",c:T.pink},
+          {l:"Courses Available",v:courses.length,i:"📚",c:T.accent},
+          {l:"Videos Watched",v:watchedV,i:"🎬",c:T.blue},
+          {l:"Total Videos",v:totalV,i:"📹",c:T.muted2},
           {l:"Completed",v:done.length,i:"✅",c:T.success},
         ].map((s,i)=>(
-          <div key={s.l} className="card card-h" style={{padding:"clamp(16px,2.5vw,22px)",animation:`fadeUp .5s ease ${i*.07}s both`}}>
-            <div style={{fontSize:"clamp(22px,3vw,28px)",marginBottom:10}}>{s.i}</div>
-            <div style={{fontWeight:800,fontSize:"clamp(22px,3vw,30px)",color:s.c,lineHeight:1}}>{s.v}</div>
-            <div style={{fontSize:"clamp(11px,1.2vw,12px)",color:T.muted,marginTop:5}}>{s.l}</div>
+          <div key={s.l} className="card" style={{padding:"clamp(14px,2vw,20px)",textAlign:"center",
+            animation:`fadeUp .4s ease ${i*.06}s both`}}>
+            <div style={{fontSize:"clamp(18px,3vw,24px)",marginBottom:6}}>{s.i}</div>
+            <div style={{fontWeight:800,fontSize:"clamp(18px,2.5vw,26px)",color:s.c,lineHeight:1}}>{s.v}</div>
+            <div style={{fontSize:"clamp(10px,1.1vw,11px)",color:T.muted,marginTop:4,lineHeight:1.3}}>{s.l}</div>
           </div>
         ))}
       </div>
 
-      {/* Progress + Quick Actions */}
-      <div className="dash-layout" style={{marginBottom:"clamp(18px,3vw,28px)"}}>
-        <div className="card" style={{padding:"clamp(20px,3vw,28px)",display:"flex",alignItems:"center",gap:"clamp(18px,3vw,32px)",flexWrap:"wrap"}}>
-          <ProgressRing pct={pct} size={100} stroke={8} color={T.accent}/>
-          <div style={{flex:1,minWidth:200}}>
-            <div style={{fontWeight:700,fontSize:"clamp(15px,2vw,18px)",marginBottom:8}}>Overall Progress</div>
-            <p style={{color:T.muted2,fontSize:"clamp(12px,1.4vw,14px)",lineHeight:1.7,marginBottom:14}}>
-              {watchedV} of {totalV} videos watched.
-              {pct<30?" Keep going — you've got this! 💪":pct<70?" Great momentum, keep it up!":"  Outstanding work! 🎉"}
-            </p>
-            <div style={{background:T.bg3,borderRadius:99,height:8}}>
-              <div style={{width:`${pct}%`,height:"100%",background:`linear-gradient(90deg,${T.accent},${T.blue})`,borderRadius:99,transition:"width 1s ease"}}/>
-            </div>
+      {/* ── CONTINUE LEARNING ── */}
+      {(inProg.length>0||courses.length>0)&&(
+        <>
+          <div style={{fontWeight:800,fontSize:"clamp(15px,2vw,18px)",marginBottom:"clamp(12px,2vw,16px)",letterSpacing:"-0.5px"}}>
+            {inProg.length>0?"▶ Continue Learning":"🚀 Start a Course"}
           </div>
-        </div>
-
-        <div className="card" style={{padding:"clamp(18px,2.5vw,24px)"}}>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:16}}>Quick Actions</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {[
-              {icon:"📚",label:"Browse All Courses",pg:"courses",color:T.accent},
-              {icon:"📈",label:"My Learning Progress",pg:"my-learning",color:T.blue},
-              {icon:"🧠",label:"Take a Quiz",pg:"quiz",color:T.pink},
-              {icon:"🏆",label:"Leaderboard",pg:"leaderboard",color:T.amber},
-              {icon:"💼",label:"Job Placement Hub",pg:"placement",color:T.cyan},
-              {icon:"📝",label:"Study Notes",pg:"notes",color:T.purple},
-            ].map(a=>(
-              <button key={a.pg} onClick={()=>setPage(a.pg)}
-                style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:T.bg3,border:`1px solid ${T.border}`,borderRadius:10,cursor:"pointer",color:T.text,transition:"all .2s",textAlign:"left"}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=a.color;e.currentTarget.style.background=`${a.color}08`;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.bg3;}}>
-                <span style={{fontSize:18}}>{a.icon}</span>
-                <span style={{fontSize:13,fontWeight:600}}>{a.label}</span>
-                <span style={{marginLeft:"auto",color:T.muted}}>→</span>
-              </button>
-            ))}
+          <div className="continue-grid">
+            {(inProg.length>0?inProg:courses).slice(0,3).map((c,i)=>{
+              const w=(prog[c.id]||[]).length;
+              const p=Math.round((w/c.videos.length)*100);
+              const next=c.videos.find(v=>!(prog[c.id]||[]).includes(v.id))||c.videos[0];
+              return(
+                <div key={c.id} className="card" onClick={()=>{setWatch({course:c,video:next});setPage("watch");}}
+                  style={{padding:"clamp(14px,2.5vw,20px)",cursor:"pointer",
+                    position:"relative",overflow:"hidden",
+                    transition:"all .2s",animation:`fadeUp .4s ease ${i*.07}s both`}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=c.color;e.currentTarget.style.transform="translateY(-3px)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="translateY(0)";}}>
+                  {/* Color top strip */}
+                  <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:c.color}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                    <span style={{fontSize:"clamp(22px,3.5vw,30px)"}}>{c.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:"clamp(12px,1.5vw,14px)",
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.title}</div>
+                      <div style={{fontSize:"clamp(10px,1.2vw,11px)",color:T.muted2,marginTop:2}}>
+                        {w}/{c.videos.length} videos
+                      </div>
+                    </div>
+                    <span className="badge" style={{background:`${c.color}18`,color:c.color,
+                      border:`1px solid ${c.color}33`,fontSize:10,flexShrink:0}}>{p}%</span>
+                  </div>
+                  <div style={{background:T.bg3,borderRadius:99,height:5,overflow:"hidden"}}>
+                    <div style={{width:`${p}%`,height:"100%",background:c.color,
+                      borderRadius:99,transition:"width .8s ease"}}/>
+                  </div>
+                  <div style={{fontSize:"clamp(11px,1.3vw,12px)",color:T.accent,marginTop:10,fontWeight:600}}>
+                    {inProg.length>0?"Continue →":"Start now →"}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      </div>
-
-      {/* Continue Learning */}
-      <div style={{fontWeight:700,fontSize:"clamp(16px,2vw,20px)",marginBottom:16}}>
-        {inProg.length>0?"Continue Learning ⚡":"Start a Course 🚀"}
-      </div>
-      <div className="grid-auto">
-        {(inProg.length>0?inProg:courses).slice(0,4).map((c,i)=>{
-          const w=(prog[c.id]||[]).length;
-          const p=Math.round((w/c.videos.length)*100);
-          const next=c.videos.find(v=>!(prog[c.id]||[]).includes(v.id))||c.videos[0];
-          return(
-            <div key={c.id} className="card card-h" onClick={()=>{setWatch({course:c,video:next});setPage("watch");}}
-              style={{padding:"clamp(16px,2.5vw,20px)",cursor:"pointer",position:"relative",overflow:"hidden",animation:`fadeUp .5s ease ${i*.06}s both`}}>
-              <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:c.color}}/>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <span style={{fontSize:"clamp(20px,3vw,26px)"}}>{c.icon}</span>
-                <span className="badge" style={{background:`${c.color}18`,color:c.color,border:`1px solid ${c.color}33`,fontSize:10}}>{p}%</span>
-              </div>
-              <div style={{fontWeight:700,fontSize:"clamp(13px,1.6vw,15px)",marginBottom:4}}>{c.title}</div>
-              <div style={{fontSize:"clamp(11px,1.3vw,12px)",color:T.muted2,marginBottom:12}}>{w}/{c.videos.length} videos watched</div>
-              <div style={{background:T.bg3,borderRadius:99,height:5}}>
-                <div style={{width:`${p}%`,height:"100%",background:c.color,borderRadius:99,transition:"width .6s"}}/>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1440,7 +1576,7 @@ function AboutPage({setPage}){
       {/* NUMBERS */}
       <section style={{padding:"clamp(32px,5vw,52px) clamp(16px,4vw,40px)",background:T.bg2}}>
         <div className="wrap">
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:0,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:0,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
             {[
               {n:"6+",l:"Free Courses",c:T.accent},
               {n:"22+",l:"Video Lessons",c:T.blue},
@@ -1466,7 +1602,7 @@ function AboutPage({setPage}){
       {/* MISSION + STORY */}
       <section className="sec">
         <div className="wrap" style={{maxWidth:1060}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"clamp(24px,4vw,48px)",alignItems:"center"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"clamp(24px,4vw,48px)",alignItems:"center"}}>
             {/* Story */}
             <div className="afu">
               <div className="stag">Our Story</div>
@@ -1551,7 +1687,7 @@ function AboutPage({setPage}){
           <h2 style={{fontWeight:800,fontSize:"clamp(20px,3vw,34px)",letterSpacing:"-1px",marginBottom:"clamp(22px,3.5vw,36px)"}}>
             Powered by <span className="gt2">Modern Tech</span>
           </h2>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:"clamp(12px,2vw,18px)"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"clamp(12px,2vw,18px)"}}>
             {[
               {name:"React + Vite",desc:"Blazing fast frontend",icon:"⚛️",color:T.cyan},
               {name:"Firebase Auth",desc:"Secure login system",icon:"🔑",color:T.amber},
@@ -1624,9 +1760,19 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
   const editC=courses.find(c=>c.id===editId);
   const TABS=[{k:"overview",l:"📊 Overview"},{k:"courses",l:"📚 Courses"},{k:"notes",l:"📝 Notes"},{k:"quiz",l:"🧠 Quiz"},{k:"students",l:"👥 Students"}];
 
+  const [studErr,setStudErr]=useState("");
   useEffect(()=>{
     if(tab!=="students")return;
-    getDocs(collection(db,"users")).then(snap=>setStudents(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    setStudErr("");
+    getDocs(collection(db,"users"))
+      .then(snap=>{
+        const all=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
+        setStudents(all);
+      })
+      .catch(e=>{
+        setStudErr("⚠️ Firestore rules mein 'users' collection ka read admin ke liye allow nahi hai. Neeche diye gaye rules update karo.");
+        console.error("Students fetch error:",e);
+      });
   },[tab]);
 
   async function addCourse(){
@@ -1841,7 +1987,23 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
             <span className="badge ba">{students.length}</span>
             <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.accent}}>☁ Firebase Auth + Firestore</span>
           </div>
-          {students.length===0
+          {studErr&&(
+            <div style={{background:`${T.danger}10`,border:`1px solid ${T.danger}33`,
+              borderRadius:12,padding:"clamp(16px,3vw,24px)",marginBottom:16}}>
+              <div style={{fontWeight:700,color:T.danger,marginBottom:8,fontSize:14}}>❌ Permission Error</div>
+              <p style={{fontSize:13,color:T.muted2,lineHeight:1.7,marginBottom:14}}>{studErr}</p>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,
+                background:T.bg3,border:`1px solid ${T.border}`,borderRadius:8,
+                padding:"12px 16px",color:T.accent,lineHeight:2}}>
+                {`// Firebase Console → Firestore → Rules → Replace users rule:`}<br/>
+                {`match /users/{userId} {`}<br/>
+                {`  allow read: if request.auth != null;`}<br/>
+                {`  allow write: if request.auth != null && request.auth.uid == userId;`}<br/>
+                {`}`}
+              </div>
+            </div>
+          )}
+          {!studErr && students.length===0
             ?<div style={{textAlign:"center",padding:"80px 20px",color:T.muted}}>
               <div style={{fontSize:44,marginBottom:12}}>👥</div>
               <div style={{fontWeight:700,fontSize:20,marginBottom:8}}>No students yet</div>
@@ -3295,7 +3457,7 @@ function LeaderboardPage({user,courses,setPage}){
         :<div style={{display:"flex",flexDirection:"column",gap:10}}>
           {/* Top 3 podium */}
           {ranked.length>=3&&(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:24}} className="afu">
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"clamp(8px,1.5vw,12px)",marginBottom:24}} className="afu">
               {[ranked[1],ranked[0],ranked[2]].map((s,i)=>{
                 const realRank=i===0?2:i===1?1:3;
                 const h=realRank===1?120:realRank===2?90:70;
@@ -3339,7 +3501,7 @@ function LeaderboardPage({user,courses,setPage}){
             </div>
             {ranked.map((s,i)=>(
               <div key={s.id} className="rank-row"
-                style={{display:"grid",gridTemplateColumns:"48px 1fr 80px 80px 80px",
+                style={{display:"grid",gridTemplateColumns:"48px 1fr 80px 80px 80px",minWidth:480,
                   padding:"clamp(11px,1.5vw,14px) 18px",alignItems:"center",
                   borderBottom:i<ranked.length-1?`1px solid ${T.border}55`:"none",
                   background:s.id===user?.uid?`${T.accent}06`:"transparent",
@@ -3533,7 +3695,7 @@ function JobPlacementPage({setPage}){
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:8,marginBottom:"clamp(20px,3vw,32px)",flexWrap:"wrap"}}>
+      <div className="job-tabs" style={{display:"flex",gap:8,marginBottom:"clamp(20px,3vw,32px)",flexWrap:"wrap"}}>
         {tabs.map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k)}
             style={{padding:"clamp(10px,1.5vw,13px) clamp(16px,2.5vw,24px)",
@@ -3631,7 +3793,7 @@ function JobPlacementPage({setPage}){
             </a>
           </div>
 
-          <div className="grid-auto">
+          <div className="tips-grid">
             {resumeTips.map((tip,i)=>(
               <div key={i} className="card card-h"
                 style={{padding:"clamp(16px,2.5vw,22px)",animation:`fadeUp .35s ease ${i*.05}s both`,
