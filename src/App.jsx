@@ -1,17 +1,18 @@
 
 
-import { useState, useEffect } from "react";
-import {
-  initializeApp } from "firebase/app";
+import { useState, useEffect, useCallback } from "react";
+import { initializeApp } from "firebase/app";
 import {
   getAuth, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, signOut,
-  onAuthStateChanged, updateProfile
+  onAuthStateChanged, updateProfile,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import {
   getFirestore, doc, setDoc, getDoc, getDocs,
-  collection, updateDoc, deleteDoc,
-  query, orderBy, serverTimestamp
+  collection, updateDoc, deleteDoc, addDoc,
+  query, orderBy, serverTimestamp, onSnapshot,
+  where
 } from "firebase/firestore";
 
 // ================================================================
@@ -383,47 +384,62 @@ function Logo({size=1,onClick}){
 }
 
 // ================================================================
-//  NAVBAR
+//  NAVBAR — FIXED (no white screen, back button, notifications)
 // ================================================================
-function Navbar({page,setPage,user,onLogout}){
+function Navbar({page,setPage,user,onLogout,notifCount=0}){
   const [mob,setMob]=useState(false);
   const [sc,setSc]=useState(false);
+
   useEffect(()=>{const f=()=>setSc(window.scrollY>20);window.addEventListener("scroll",f);return()=>window.removeEventListener("scroll",f);},[]);
-  useEffect(()=>{document.body.style.overflow=mob?"hidden":"";},[mob]);
+
+  // FIX: Don't use body overflow hidden — causes white screen on iOS/Android
+  // Instead use pointer-events on content below nav
+  const closeMob=()=>setMob(false);
 
   const links=user
     ?user.role==="admin"
-      ?[{l:"Overview",p:"admin"},{l:"Courses",p:"admin-courses"},{l:"Students",p:"admin-students"}]
-      :[{l:"Home",p:"home"},{l:"Dashboard",p:"dashboard"},{l:"Courses",p:"courses"},{l:"My Learning",p:"my-learning"}]
-    :[{l:"Home",p:"home"},{l:"Courses",p:"courses"},{l:"About",p:"about"}];
+      ?[{l:"Overview",p:"admin"},{l:"Courses",p:"admin-courses"},{l:"Notes",p:"admin-notes"},{l:"Students",p:"admin-students"}]
+      :[{l:"Home",p:"home"},{l:"Dashboard",p:"dashboard"},{l:"Courses",p:"courses"},{l:"Notes",p:"notes"},{l:"My Learning",p:"my-learning"}]
+    :[{l:"Home",p:"home"},{l:"Courses",p:"courses"},{l:"Notes",p:"notes"},{l:"About",p:"about"}];
 
-  const go=p=>{setPage(p);setMob(false);};
+  const go=p=>{setPage(p);closeMob();};
 
   return(
     <>
       <nav style={{position:"fixed",top:0,left:0,right:0,zIndex:500,
-        background:sc?"rgba(6,13,24,.96)":"transparent",
-        backdropFilter:sc?"blur(24px)":"none",
-        borderBottom:`1px solid ${sc?T.border:"transparent"}`,
-        transition:"all .3s"}}>
+        background:sc||mob?"rgba(6,13,24,.98)":"transparent",
+        backdropFilter:"blur(24px)",
+        borderBottom:`1px solid ${sc||mob?T.border:"transparent"}`,
+        transition:"background .3s,border-color .3s"}}>
         <div className="nav-wrap">
           <Logo size={.85} onClick={()=>go("home")}/>
-          {/* Desktop */}
+
+          {/* Desktop Links */}
           <div className="nav-desk" style={{display:"flex",alignItems:"center",gap:2}}>
             {links.map(({l,p})=>(
               <button key={p} className="btn-g" onClick={()=>go(p)}
                 style={{color:page===p?T.accent:T.muted2,fontWeight:page===p?700:400,fontSize:14}}>{l}</button>
             ))}
           </div>
+
+          {/* Desktop Right */}
           <div className="nav-desk" style={{display:"flex",alignItems:"center",gap:10}}>
             {user?(
               <>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${T.accent},${T.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:T.bg,flexShrink:0}}>
+                {/* Notification Bell */}
+                <button onClick={()=>go("notifications")} style={{position:"relative",background:"none",border:"none",cursor:"pointer",padding:6,color:T.muted2,transition:"color .2s"}}
+                  onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.muted2}>
+                  <span style={{fontSize:18}}>🔔</span>
+                  {notifCount>0&&<span style={{position:"absolute",top:2,right:2,width:16,height:16,borderRadius:"50%",background:T.pink,color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{notifCount>9?"9+":notifCount}</span>}
+                </button>
+                {/* Profile Avatar */}
+                <button onClick={()=>go("profile")} style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:"4px 8px",borderRadius:8,transition:"background .2s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=T.bg3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${user.avatarColor||T.accent},${T.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:T.bg,flexShrink:0}}>
                     {user.name?.[0]?.toUpperCase()||"U"}
                   </div>
-                  <span style={{fontSize:13,fontWeight:600,color:T.muted2,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name?.split(" ")[0]}</span>
-                </div>
+                  <span style={{fontSize:13,fontWeight:600,color:T.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name?.split(" ")[0]}</span>
+                </button>
                 <button className="btn-r" onClick={onLogout} style={{padding:"7px 16px",fontSize:13}}>Logout</button>
               </>
             ):(
@@ -433,40 +449,56 @@ function Navbar({page,setPage,user,onLogout}){
               </>
             )}
           </div>
+
           {/* Hamburger */}
-          <button className="nav-mob-btn" onClick={()=>setMob(!mob)}
-            style={{background:"none",border:"none",padding:6,flexDirection:"column",gap:5,alignItems:"center"}}>
-            {mob
-              ?<span style={{color:T.text,fontSize:22,lineHeight:1}}>✕</span>
-              :[0,1,2].map(i=><span key={i} style={{display:"block",width:24,height:2,background:T.text,borderRadius:2}}/>)
-            }
+          <button className="nav-mob-btn"
+            onClick={()=>setMob(m=>!m)}
+            style={{background:"none",border:"none",padding:"6px 8px",flexDirection:"column",gap:5,alignItems:"center",cursor:"pointer",zIndex:10,position:"relative"}}>
+            <span style={{display:"block",width:22,height:2,background:T.text,borderRadius:2,transition:"all .3s",transform:mob?"rotate(45deg) translate(5px,5px)":"none"}}/>
+            <span style={{display:"block",width:22,height:2,background:T.text,borderRadius:2,transition:"all .3s",opacity:mob?0:1}}/>
+            <span style={{display:"block",width:22,height:2,background:T.text,borderRadius:2,transition:"all .3s",transform:mob?"rotate(-45deg) translate(5px,-5px)":"none"}}/>
           </button>
         </div>
-      </nav>
 
-      {/* Mobile Menu */}
-      {mob&&(
-        <div className="mob-menu" style={{position:"fixed",inset:0,zIndex:490,background:"rgba(6,13,24,.98)",backdropFilter:"blur(24px)",
-          display:"flex",flexDirection:"column",paddingTop:66,animation:"fadeIn .2s ease"}}>
-          <button onClick={()=>setMob(false)} style={{position:"absolute",top:18,right:18,background:"none",border:"none",color:T.muted2,fontSize:24,cursor:"pointer"}}>✕</button>
-          <div style={{borderTop:`1px solid ${T.border}`,flex:1,overflowY:"auto"}}>
+        {/* Mobile Menu — inside nav so background is correct */}
+        <div style={{
+          maxHeight:mob?"100vh":"0",
+          overflow:"hidden",
+          transition:"max-height .35s ease",
+          borderTop:mob?`1px solid ${T.border}`:"none",
+          background:"rgba(6,13,24,.98)",
+        }}>
+          <div style={{padding:"8px 0"}}>
             {links.map(({l,p})=>(
-              <button key={p} onClick={()=>go(p)} style={{display:"flex",width:"100%",padding:"18px clamp(20px,5vw,32px)",background:page===p?`${T.accent}08`:"none",border:"none",borderBottom:`1px solid ${T.border}`,color:page===p?T.accent:T.text,fontWeight:700,fontSize:clamp(18,5,22),textAlign:"left",cursor:"pointer",fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
+              <button key={p} onClick={()=>go(p)}
+                style={{display:"flex",alignItems:"center",width:"100%",padding:"14px clamp(20px,5vw,28px)",
+                  background:page===p?`${T.accent}0c`:"transparent",border:"none",
+                  borderLeft:page===p?`3px solid ${T.accent}`:"3px solid transparent",
+                  color:page===p?T.accent:T.text,fontWeight:page===p?700:500,fontSize:15,
+                  textAlign:"left",cursor:"pointer",fontFamily:"'Plus Jakarta Sans',sans-serif",transition:"all .15s"}}>
                 {l}
               </button>
             ))}
           </div>
-          <div style={{padding:"24px clamp(20px,5vw,32px)"}}>
-            {user
-              ?<button className="btn-r" onClick={()=>{onLogout();setMob(false);}} style={{width:"100%",padding:14,fontSize:15}}>Logout</button>
-              :<div style={{display:"flex",flexDirection:"column",gap:12}}>
-                <button className="btn-s" onClick={()=>go("login")} style={{width:"100%",padding:14,textAlign:"center"}}>Login</button>
-                <button className="btn-p" onClick={()=>go("register")} style={{width:"100%",padding:14}}>Get Started Free</button>
+          <div style={{padding:"16px clamp(20px,5vw,28px) 24px",borderTop:`1px solid ${T.border}44`}}>
+            {user?(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <button onClick={()=>go("profile")} className="btn-s" style={{width:"100%",padding:13,textAlign:"center",fontSize:14}}>
+                  👤 My Profile
+                </button>
+                <button className="btn-r" onClick={()=>{onLogout();closeMob();}} style={{width:"100%",padding:13,fontSize:14}}>
+                  Logout
+                </button>
               </div>
-            }
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <button className="btn-s" onClick={()=>go("login")} style={{width:"100%",padding:13,textAlign:"center",fontSize:14}}>Login</button>
+                <button className="btn-p" onClick={()=>go("register")} style={{width:"100%",padding:13,fontSize:14}}>Get Started Free</button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </nav>
     </>
   );
 }
@@ -529,7 +561,7 @@ function HomePage({setPage,courses,user}){
                 <span>Build Anything.</span>
               </h1>
               <p className="hero-sub afu" style={{marginBottom:"clamp(24px,4vw,38px)",animationDelay:".15s"}}>
-                From your first "Hello World" to landing a top tech job — HackingSum.edu covers{" "}
+                From your first "Hello World" to landing your dream tech job — HackingSum.edu covers{" "}
                 <strong style={{color:T.text}}>Python, C++, Web Dev, DSA, CP &amp; Cybersecurity</strong>, completely free.
               </p>
               <div className="hero-btns afu" style={{marginBottom:"clamp(28px,5vw,44px)",animationDelay:".22s"}}>
@@ -668,7 +700,7 @@ function HomePage({setPage,courses,user}){
             Your Path to <span className="gt2">Mastery</span>
           </h2>
           <p style={{color:T.muted2,fontSize:"clamp(13px,1.5vw,15px)",marginBottom:"clamp(28px,4vw,48px)",maxWidth:520}}>
-            Step-by-step guide — beginner se professional tak. Ek ek step follow karo.
+            Step-by-step guide — from complete beginner to industry-ready professional.
           </p>
 
           {/* Timeline */}
@@ -683,35 +715,35 @@ function HomePage({setPage,courses,user}){
                 step:"01", phase:"Foundation", time:"0–2 Months",
                 title:"Start With the Basics", color:T.accent,
                 items:["Python Zero to Hero — variables, loops, functions","Web Dev: HTML + CSS — structure & style","Terminal basics & Git fundamentals"],
-                tip:"Roz sirf 1–2 ghante do. Consistency > marathon sessions.",
+                tip:"Dedicate 1–2 hours daily. Consistency beats marathon sessions every time.",
                 side:"left"
               },
               {
                 step:"02", phase:"Core Skills", time:"2–5 Months",
                 title:"Build Real Foundations", color:T.blue,
                 items:["JavaScript — DOM, events, fetch API","C++ basics — pointers, OOP, memory","DSA: Arrays, Strings, Linked Lists, Stacks"],
-                tip:"Har topic ke baad ek chhota project banao — theory sirf practice se pakki hoti hai.",
+                tip:"Build a small project after every topic — theory only sticks through practice.",
                 side:"right"
               },
               {
                 step:"03", phase:"Problem Solving", time:"5–8 Months",
                 title:"Think Like an Engineer", color:T.pink,
                 items:["DSA: Trees, Graphs, Heaps, DP","Binary Search, Two Pointers, Sliding Window","LeetCode Easy → Medium problems daily"],
-                tip:"Roz 1–2 problems solve karo. Pattern recognition hi asli skill hai.",
+                tip:"Solve 1–2 problems daily. Pattern recognition is the real skill to build.",
                 side:"left"
               },
               {
                 step:"04", phase:"Specialization", time:"8–12 Months",
                 title:"Choose Your Track", color:T.amber,
                 items:["🔐 Cybersecurity: Linux CLI, Networking, OWASP, CTF","🏆 Competitive Programming: Greedy, D&C, Graph algos","🌐 Full Stack: React, Node.js, Databases, APIs"],
-                tip:"Apni strength aur interest ke hisaab se ek track choose karo.",
+                tip:"Choose your track based on your strengths and long-term interests.",
                 side:"right"
               },
               {
                 step:"05", phase:"Career Ready", time:"12+ Months",
                 title:"Land the Dream Job", color:T.purple,
                 items:["Resume + GitHub portfolio polish","Mock interviews & system design","Apply to companies — you're ready! 🎉"],
-                tip:"Portfolio + DSA + communication — yeh tino milke kaam dete hain.",
+                tip:"Portfolio + DSA + communication — all three together land the job.",
                 side:"left"
               },
             ].map((r,i)=>(
@@ -784,7 +816,7 @@ function HomePage({setPage,courses,user}){
                 <span style={{fontSize:24}}>🏆</span>
                 <div style={{textAlign:"left"}}>
                   <div style={{fontWeight:800,fontSize:"clamp(14px,1.8vw,16px)",color:T.accent}}>Full-Stack Developer / Ethical Hacker</div>
-                  <div style={{fontSize:"clamp(11px,1.3vw,12px)",color:T.muted,fontFamily:"'JetBrains Mono',monospace"}}>Tum ready ho — go build, hack & earn! 🚀</div>
+                  <div style={{fontSize:"clamp(11px,1.3vw,12px)",color:T.muted,fontFamily:"'JetBrains Mono',monospace"}}>You're ready — go build, hack & earn! 🚀</div>
                 </div>
               </div>
             </div>
@@ -802,7 +834,7 @@ function HomePage({setPage,courses,user}){
               Ready to Become a <span className="gt3">Hacker</span>?
             </h2>
             <p style={{color:T.muted2,fontSize:"clamp(13px,1.5vw,15px)",lineHeight:1.8,marginBottom:32}}>
-              Join thousands of students. Free forever. No credit card required.
+              Join thousands of students. Free forever. No credit card. No hidden fees. Forever free.
             </p>
             <div style={{display:"flex",justifyContent:"center",gap:12,flexWrap:"wrap"}}>
               <button className="btn-p" onClick={()=>setPage("register")} style={{fontSize:"clamp(14px,1.5vw,16px)",padding:"clamp(12px,2vw,16px) clamp(28px,4vw,48px)",borderRadius:12}}>
@@ -822,18 +854,25 @@ function HomePage({setPage,courses,user}){
 }
 
 // ================================================================
-//  AUTH PAGE — NO ADMIN HINT
+//  AUTH PAGE — Forgot Password + Mobile Number
 // ================================================================
 function AuthPage({initMode,setPage,setUser}){
-  const [mode,setMode]=useState(initMode||"login");
-  const [form,setForm]=useState({name:"",email:"",password:"",confirm:""});
+  const [mode,setMode]=useState(initMode||"login"); // login | register | forgot
+  const [form,setForm]=useState({name:"",email:"",password:"",confirm:"",mobile:""});
   const [err,setErr]=useState("");
+  const [succ,setSucc]=useState("");
   const [loading,setLoading]=useState(false);
-  const f=e=>{setForm(p=>({...p,[e.target.name]:e.target.value}));setErr("");};
+  const f=e=>{setForm(p=>({...p,[e.target.name]:e.target.value}));setErr("");setSucc("");};
 
   async function submit(){
-    setLoading(true);setErr("");
+    setLoading(true);setErr("");setSucc("");
     try{
+      if(mode==="forgot"){
+        if(!form.email.trim()){setErr("Please enter your email address.");setLoading(false);return;}
+        await sendPasswordResetEmail(auth,form.email.trim());
+        setSucc("✅ Password reset link sent! Check your inbox (and spam folder).");
+        setLoading(false);return;
+      }
       if(mode==="login"){
         if(form.email===ADMIN_EMAIL&&form.password===ADMIN_PASSWORD){
           setUser({uid:"admin",name:"Admin",email:ADMIN_EMAIL,role:"admin"});
@@ -842,81 +881,124 @@ function AuthPage({initMode,setPage,setUser}){
         const res=await signInWithEmailAndPassword(auth,form.email,form.password);
         const snap=await getDoc(doc(db,"users",res.user.uid));
         const profile=snap.exists()?snap.data():{};
-        setUser({uid:res.user.uid,name:res.user.displayName||profile.name||"Student",email:res.user.email,role:profile.role||"student"});
+        setUser({uid:res.user.uid,name:res.user.displayName||profile.name||"Student",email:res.user.email,role:profile.role||"student",mobile:profile.mobile||"",avatarColor:profile.avatarColor||T.accent});
         setPage("dashboard");
       }else{
-        if(!form.name.trim()||!form.email.trim()||!form.password){setErr("All fields required.");setLoading(false);return;}
+        if(!form.name.trim()||!form.email.trim()||!form.password){setErr("Name, email and password are required.");setLoading(false);return;}
         if(form.password.length<6){setErr("Password must be at least 6 characters.");setLoading(false);return;}
-        if(form.password!==form.confirm){setErr("Passwords don't match.");setLoading(false);return;}
+        if(form.password!==form.confirm){setErr("Passwords do not match.");setLoading(false);return;}
+        if(form.mobile&&!/^[6-9]\d{9}$/.test(form.mobile)){setErr("Please enter a valid 10-digit Indian mobile number.");setLoading(false);return;}
         const res=await createUserWithEmailAndPassword(auth,form.email,form.password);
         await updateProfile(res.user,{displayName:form.name.trim()});
-        await setDoc(doc(db,"users",res.user.uid),{name:form.name.trim(),email:form.email.trim(),role:"student",createdAt:serverTimestamp()});
-        setUser({uid:res.user.uid,name:form.name.trim(),email:form.email.trim(),role:"student"});
+        await setDoc(doc(db,"users",res.user.uid),{
+          name:form.name.trim(),email:form.email.trim(),
+          mobile:form.mobile.trim()||"",
+          role:"student",avatarColor:T.accent,
+          createdAt:serverTimestamp()
+        });
+        setUser({uid:res.user.uid,name:form.name.trim(),email:form.email.trim(),mobile:form.mobile.trim()||"",role:"student",avatarColor:T.accent});
         setPage("dashboard");
       }
     }catch(e){
-      const m=e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"?"Wrong email or password."
-        :e.code==="auth/email-already-in-use"?"Email already registered. Please login."
-        :e.code==="auth/invalid-email"?"Invalid email address."
-        :e.code==="auth/network-request-failed"?"Network error. Check connection."
-        :e.message||"Something went wrong.";
+      const m=e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential"?"Incorrect email or password."
+        :e.code==="auth/email-already-in-use"?"This email is already registered. Please log in."
+        :e.code==="auth/invalid-email"?"Please enter a valid email address."
+        :e.code==="auth/network-request-failed"?"Network error. Please check your internet connection."
+        :e.message||"Something went wrong. Please try again.";
       setErr(m);
     }
     setLoading(false);
   }
+
+  const switchMode=m=>{setMode(m);setErr("");setSucc("");setForm({name:"",email:"",password:"",confirm:"",mobile:""});};
 
   return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
       padding:"88px clamp(16px,4vw,40px) 40px",
       background:`radial-gradient(ellipse 60% 50% at 50% 0%,${T.accent}07 0%,transparent 70%),${T.bg}`}}>
       <div style={{width:"100%",maxWidth:460,animation:"fadeUp .5s ease both"}}>
-        <div style={{textAlign:"center",marginBottom:32}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{display:"inline-flex",justifyContent:"center"}}><Logo size={1}/></div>
         </div>
-        <div className="glass auth-card" style={{padding:"clamp(24px,5vw,36px) clamp(20px,4vw,32px)",boxShadow:`0 32px 80px rgba(0,0,0,.45)`}}>
-          {/* Tabs */}
-          <div style={{display:"flex",background:T.bg3,borderRadius:10,padding:4,marginBottom:26}}>
-            {["login","register"].map(m=>(
-              <button key={m} onClick={()=>{setMode(m);setErr("");setForm({name:"",email:"",password:"",confirm:""}); }}
-                style={{flex:1,padding:"10px",border:"none",
-                  background:mode===m?`linear-gradient(135deg,${T.accent},${T.blue})`:"transparent",
-                  color:mode===m?T.bg:T.muted2,borderRadius:8,fontWeight:700,fontSize:14,
-                  textTransform:"capitalize",transition:"all .2s",cursor:"pointer"}}>
-                {m==="login"?"Login":"Register"}
+
+        <div className="glass auth-card" style={{padding:"clamp(22px,5vw,34px) clamp(18px,4vw,30px)",boxShadow:`0 32px 80px rgba(0,0,0,.45)`}}>
+
+          {mode!=="forgot"&&(
+            <div style={{display:"flex",background:T.bg3,borderRadius:10,padding:4,marginBottom:24}}>
+              {["login","register"].map(m=>(
+                <button key={m} onClick={()=>switchMode(m)}
+                  style={{flex:1,padding:"10px",border:"none",
+                    background:mode===m?`linear-gradient(135deg,${T.accent},${T.blue})`:"transparent",
+                    color:mode===m?T.bg:T.muted2,borderRadius:8,fontWeight:700,fontSize:14,
+                    textTransform:"capitalize",transition:"all .2s",cursor:"pointer"}}>
+                  {m==="login"?"Login":"Register"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode==="forgot"?(
+            <>
+              <button onClick={()=>switchMode("login")} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:T.muted2,fontSize:13,cursor:"pointer",marginBottom:18,padding:0}}>
+                ← Back to Login
               </button>
-            ))}
-          </div>
-
-          <h2 style={{fontWeight:800,fontSize:"clamp(18px,2.5vw,22px)",letterSpacing:"-.5px",marginBottom:6}}>
-            {mode==="login"?"Welcome back 👋":"Join HackingSum.edu 🚀"}
-          </h2>
-          <p style={{color:T.muted2,fontSize:13,marginBottom:22}}>
-            {mode==="login"?"Enter your credentials to continue":"Create your free student account"}
-          </p>
-
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {mode==="register"&&<div><label className="lbl">Full Name</label><input name="name" className="inp" value={form.name} onChange={f} placeholder="Your full name"/></div>}
-            <div><label className="lbl">Email Address</label><input name="email" type="email" className="inp" value={form.email} onChange={f} placeholder="you@email.com"/></div>
-            <div><label className="lbl">Password</label><input name="password" type="password" className="inp" value={form.password} onChange={f} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
-            {mode==="register"&&<div><label className="lbl">Confirm Password</label><input name="confirm" type="password" className="inp" value={form.confirm} onChange={f} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>}
-          </div>
+              <h2 style={{fontWeight:800,fontSize:"clamp(17px,2.5vw,21px)",marginBottom:6}}>Password Reset 🔑</h2>
+              <p style={{color:T.muted2,fontSize:13,marginBottom:20,lineHeight:1.7}}>Enter your registered email address and we'll send you a reset link.</p>
+              <label className="lbl">Email Address</label>
+              <input name="email" type="email" className="inp" value={form.email} onChange={f} placeholder="you@email.com" onKeyDown={e=>e.key==="Enter"&&submit()}/>
+            </>
+          ):(
+            <>
+              <h2 style={{fontWeight:800,fontSize:"clamp(17px,2.5vw,21px)",letterSpacing:"-.5px",marginBottom:6}}>
+                {mode==="login"?"Welcome back 👋":"Join HackingSum.edu 🚀"}
+              </h2>
+              <p style={{color:T.muted2,fontSize:13,marginBottom:20}}>
+                {mode==="login"?"Sign in to your account to continue":"Create your free student account"}
+              </p>
+              <div style={{display:"flex",flexDirection:"column",gap:13}}>
+                {mode==="register"&&<div><label className="lbl">Full Name *</label><input name="name" className="inp" value={form.name} onChange={f} placeholder="Your full name"/></div>}
+                <div><label className="lbl">Email Address *</label><input name="email" type="email" className="inp" value={form.email} onChange={f} placeholder="you@email.com"/></div>
+                {mode==="register"&&(
+                  <div>
+                    <label className="lbl">Mobile Number <span style={{color:T.muted,fontFamily:"sans-serif",fontSize:9,letterSpacing:0}}>(optional)</span></label>
+                    <div style={{position:"relative"}}>
+                      <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.muted2,fontFamily:"'JetBrains Mono',monospace"}}>+91</span>
+                      <input name="mobile" type="tel" className="inp" value={form.mobile} onChange={f} placeholder="9876543210" maxLength={10} style={{paddingLeft:46}}/>
+                    </div>
+                  </div>
+                )}
+                <div><label className="lbl">Password *</label><input name="password" type="password" className="inp" value={form.password} onChange={f} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&mode==="login"&&submit()}/></div>
+                {mode==="register"&&<div><label className="lbl">Confirm Password *</label><input name="confirm" type="password" className="inp" value={form.confirm} onChange={f} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&submit()}/></div>}
+              </div>
+              {mode==="login"&&(
+                <div style={{textAlign:"right",marginTop:8}}>
+                  <span onClick={()=>switchMode("forgot")} style={{fontSize:12,color:T.accent,cursor:"pointer",fontWeight:600}}>Forgot password?</span>
+                </div>
+              )}
+            </>
+          )}
 
           {err&&<div style={{marginTop:14,padding:"11px 14px",background:`${T.danger}12`,border:`1px solid ${T.danger}33`,borderRadius:8,fontSize:13,color:T.danger,display:"flex",gap:8,alignItems:"flex-start"}}>
             <span style={{flexShrink:0}}>⚠</span>{err}
           </div>}
+          {succ&&<div style={{marginTop:14,padding:"11px 14px",background:`${T.success}12`,border:`1px solid ${T.success}33`,borderRadius:8,fontSize:13,color:T.success,display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{flexShrink:0}}>✅</span>{succ}
+          </div>}
 
           <button className="btn-p" onClick={submit} disabled={loading}
-            style={{width:"100%",marginTop:20,padding:"clamp(12px,1.8vw,15px)",fontSize:15,borderRadius:10}}>
+            style={{width:"100%",marginTop:18,padding:"clamp(12px,1.8vw,15px)",fontSize:15,borderRadius:10}}>
             {loading&&<Spinner/>}
-            {loading?"Please wait...":mode==="login"?"Login to Dashboard →":"Create Account →"}
+            {loading?"Please wait...":mode==="forgot"?"Send Reset Link →":mode==="login"?"Login to Dashboard →":"Create Account →"}
           </button>
 
-          <div style={{textAlign:"center",marginTop:16,fontSize:13,color:T.muted}}>
-            {mode==="login"
-              ?<>Don't have an account? <span style={{color:T.accent,cursor:"pointer",fontWeight:600}} onClick={()=>setMode("register")}>Register free</span></>
-              :<>Have an account? <span style={{color:T.accent,cursor:"pointer",fontWeight:600}} onClick={()=>setMode("login")}>Login</span></>
-            }
-          </div>
+          {mode!=="forgot"&&(
+            <div style={{textAlign:"center",marginTop:14,fontSize:13,color:T.muted}}>
+              {mode==="login"
+                ?<>Don't have an account? <span style={{color:T.accent,cursor:"pointer",fontWeight:600}} onClick={()=>switchMode("register")}>Sign up for free</span></>
+                :<>Already have an account? <span style={{color:T.accent,cursor:"pointer",fontWeight:600}} onClick={()=>switchMode("login")}>Log in</span></>
+              }
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -981,7 +1063,7 @@ function DashboardPage({user,courses,setPage,setWatch}){
             <div style={{fontWeight:700,fontSize:"clamp(15px,2vw,18px)",marginBottom:8}}>Overall Progress</div>
             <p style={{color:T.muted2,fontSize:"clamp(12px,1.4vw,14px)",lineHeight:1.7,marginBottom:14}}>
               {watchedV} of {totalV} videos watched.
-              {pct<30?" Keep going — you've got this!":pct<70?" Great momentum, keep it up!":"  Outstanding work! 🎉"}
+              {pct<30?" Keep going — you've got this! 💪":pct<70?" Great momentum, keep it up!":"  Outstanding work! 🎉"}
             </p>
             <div style={{background:T.bg3,borderRadius:99,height:8}}>
               <div style={{width:`${pct}%`,height:"100%",background:`linear-gradient(90deg,${T.accent},${T.blue})`,borderRadius:99,transition:"width 1s ease"}}/>
@@ -1226,7 +1308,7 @@ function MyLearningPage({user,courses,setPage,setWatch}){
       <div style={{marginBottom:"clamp(22px,3vw,36px)"}} className="afu">
         <div className="stag">My Learning</div>
         <h1 style={{fontWeight:800,fontSize:"clamp(24px,4vw,40px)",letterSpacing:"-1.5px"}}>Your Learning <span className="gt2">Journey</span></h1>
-        <p style={{color:T.muted2,fontSize:13,marginTop:6}}>☁ Progress synced — accessible from any device.</p>
+        <p style={{color:T.muted2,fontSize:13,marginTop:6}}>☁ Progress synced — accessible from any device, anytime.</p>
       </div>
       {started.length===0
         ?<div style={{textAlign:"center",padding:"80px 20px",color:T.muted}}>
@@ -1281,8 +1363,8 @@ function AboutPage({setPage}){
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
           </h1>
           <p style={{color:T.muted2,fontSize:"clamp(14px,1.7vw,17px)",lineHeight:1.9,maxWidth:600,margin:"0 auto 32px"}}>
-            HackingSum.edu ek free platform hai jahan koi bhi student — chahe chote shehar se ho ya bade —
-            coding, cybersecurity aur DSA seekh ke apni life change kar sakta hai.
+            HackingSum.edu is a free learning platform where any student — regardless of city or background —
+            can master coding, cybersecurity and DSA to build a career in tech.
           </p>
           <div style={{display:"flex",justifyContent:"center",gap:10,flexWrap:"wrap"}}>
             <button className="btn-p" onClick={()=>setPage("register")} style={{borderRadius:12,padding:"13px 32px",fontSize:15}}>Join for Free →</button>
@@ -1327,13 +1409,13 @@ function AboutPage({setPage}){
             <div className="afu">
               <div className="stag">Our Story</div>
               <h2 style={{fontWeight:800,fontSize:"clamp(22px,3.5vw,36px)",letterSpacing:"-1px",marginBottom:18,lineHeight:1.2}}>
-                Ek Chhoti Soch,<br/><span className="gt2">Bada Sapna</span>
+                A Simple Idea,<br/><span className="gt2">A Big Dream</span>
               </h2>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 {[
-                  "HackingSum.edu ka janam ek simple soch se hua — quality coding education sirf unhi ke liye nahi honi chahiye jo bade cities mein rehte hain ya expensive courses afford kar sakte hain.",
-                  "Hamara platform un students ke liye bana hai jo raat ko phone pe coding seekhte hain, jo YouTube se Python chalate hain, jo FAANG ka sapna dekhte hain par guide nahi hoti.",
-                  "Firebase-powered platform pe tumhara progress cloud mein safe rehta hai. Koi bhi device, koi bhi waqt — sikhna kabhi nahi rukta.",
+                  "HackingSum.edu was born from a simple belief — quality coding education should not be reserved for those in big cities or those who can afford expensive courses.",
+                  "Our platform is built for students who learn late at night on their phones, who pick up Python from YouTube, who dream of FAANG but lack structured guidance.",
+                  "Powered by Firebase, your progress stays synced in the cloud — any device, any time, learning never stops.",
                 ].map((p,i)=>(
                   <p key={i} style={{fontSize:"clamp(13px,1.5vw,15px)",color:T.muted2,lineHeight:1.85,
                     paddingLeft:14,borderLeft:`2px solid ${i===0?T.accent:i===1?T.blue:T.pink}44`}}>{p}</p>
@@ -1344,7 +1426,7 @@ function AboutPage({setPage}){
             {/* Mission Cards */}
             <div style={{display:"flex",flexDirection:"column",gap:14}} className="afu">
               {[
-                {icon:"🎯",title:"Mission",desc:"Har student ko world-class coding education — bilkul free.",color:T.accent},
+                {icon:"🎯",title:"Mission",desc:"Deliver world-class coding education to every student — completely free.",color:T.accent},
                 {icon:"👁",title:"Vision",desc:"Ek aisa India jahan talent, not money, decides who becomes an engineer.",color:T.blue},
                 {icon:"💎",title:"Values",desc:"Honesty · Simplicity · Community · Continuous Learning",color:T.pink},
               ].map((v,i)=>(
@@ -1374,12 +1456,12 @@ function AboutPage({setPage}){
           </h2>
           <div className="grid-3">
             {[
-              {icon:"🐍",title:"Python Zero to Hero",desc:"Bilkul scratch se — variables, OOP, projects tak. Beginners ke liye best start.",color:T.accent,tag:"Beginner Friendly"},
-              {icon:"🌐",title:"Web Development",desc:"HTML, CSS, JavaScript — real websites banao. Portfolio ready courses.",color:T.blue,tag:"Project Based"},
+              {icon:"🐍",title:"Python Zero to Hero",desc:"From absolute scratch to variables, OOP, and real projects. The best starting point for beginners.",color:T.accent,tag:"Beginner Friendly"},
+              {icon:"🌐",title:"Web Development",desc:"HTML, CSS, JavaScript — build real websites from day one. Portfolio-ready projects included.",color:T.blue,tag:"Project Based"},
               {icon:"🧠",title:"DSA + Algorithms",desc:"Interview-focused DSA — Trees, Graphs, DP, sorting. FAANG prep included.",color:T.pink,tag:"Interview Prep"},
               {icon:"🔐",title:"Cybersecurity",desc:"Ethical hacking, Linux CLI, networking, OWASP Top 10, CTF basics.",color:T.purple,tag:"Hands-on Labs"},
-              {icon:"⚙️",title:"C++ Masterclass",desc:"Pointers, STL, templates aur competitive programming tricks. Power user level.",color:T.cyan,tag:"Advanced"},
-              {icon:"🏆",title:"Competitive Programming",desc:"Greedy, D&C, Binary Search, Graphs — Codeforces aur ICPC preparation.",color:T.amber,tag:"Contest Ready"},
+              {icon:"⚙️",title:"C++ Masterclass",desc:"Pointers, STL, templates and competitive programming techniques. Reach power-user level.",color:T.cyan,tag:"Advanced"},
+              {icon:"🏆",title:"Competitive Programming",desc:"Greedy, D&C, Binary Search, Graphs — targeted prep for Codeforces and ICPC.",color:T.amber,tag:"Contest Ready"},
             ].map((f,i)=>(
               <div key={f.title} className="card card-h"
                 style={{padding:"clamp(18px,2.5vw,24px)",animation:`fadeUp .45s ease ${i*.08}s both`,
@@ -1441,7 +1523,7 @@ function AboutPage({setPage}){
             Ready to <span className="gt3">Start?</span>
           </h2>
           <p style={{color:T.muted2,fontSize:"clamp(13px,1.5vw,15px)",lineHeight:1.9,marginBottom:32}}>
-            Free hai, hamesha rahega. Abhi register karo aur apna coding journey shuru karo.
+            Free hai, forever. Sign up today and start your coding journey.
           </p>
           <div style={{display:"flex",justifyContent:"center",gap:12,flexWrap:"wrap"}}>
             <button className="btn-p" onClick={()=>setPage("register")}
@@ -1478,7 +1560,7 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
 
   const msg=(text,type="success")=>{setToast({text,type});setTimeout(()=>setToast({text:"",type:"success"}),3000);};
   const editC=courses.find(c=>c.id===editId);
-  const TABS=[{k:"overview",l:"📊 Overview"},{k:"courses",l:"📚 Courses"},{k:"students",l:"👥 Students"}];
+  const TABS=[{k:"overview",l:"📊 Overview"},{k:"courses",l:"📚 Courses"},{k:"notes",l:"📝 Notes"},{k:"students",l:"👥 Students"}];
 
   useEffect(()=>{
     if(tab!=="students")return;
@@ -1684,6 +1766,9 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
         </div>
       )}
 
+      {/* NOTES */}
+      {tab==="notes"&&<AdminNotesTab/>}
+
       {/* STUDENTS */}
       {tab==="students"&&(
         <div className="afi">
@@ -1747,6 +1832,378 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
 }
 
 // ================================================================
+//  NOTES PAGE — Users read, Admin adds
+// ================================================================
+function NotesPage({user,setPage}){
+  const [notes,setNotes]=useState([]);
+  const [load,setLoad]=useState(true);
+  const [search,setSearch]=useState("");
+  const [catF,setCatF]=useState("All");
+  const cats=["All","Python","C++","Web Dev","DSA","Cybersecurity","CP","General"];
+
+  useEffect(()=>{
+    const q=query(collection(db,"notes"),orderBy("createdAt","desc"));
+    const unsub=onSnapshot(q,snap=>{
+      setNotes(snap.docs.map(d=>({id:d.id,...d.data()})));
+      setLoad(false);
+    },()=>setLoad(false));
+    return unsub;
+  },[]);
+
+  const filtered=notes.filter(n=>
+    (catF==="All"||n.category===catF)&&
+    (search===""||n.title?.toLowerCase().includes(search.toLowerCase())||n.content?.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const catColor={Python:T.accent,"C++":T.blue,"Web Dev":T.pink,DSA:T.amber,Cybersecurity:T.purple,CP:T.cyan,General:T.muted2};
+
+  if(load)return(<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"80vh",flexDirection:"column",gap:16}}><Spinner size={32}/><p style={{color:T.muted,fontSize:14}}>Loading notes...</p></div>);
+
+  return(
+    <div className="page" style={{maxWidth:1100,margin:"0 auto"}}>
+      <div style={{marginBottom:"clamp(20px,3vw,32px)"}} className="afu">
+        <div className="stag">Study Material</div>
+        <h1 style={{fontWeight:800,fontSize:"clamp(24px,4vw,40px)",letterSpacing:"-1.5px",marginBottom:6}}>
+          Course <span className="gt2">Notes</span>
+        </h1>
+        <p style={{color:T.muted2,fontSize:13}}>Admin dwara add kiye gaye notes — padho, samjho, ace explore! 📚</p>
+      </div>
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:"clamp(18px,3vw,28px)"}}>
+        <input className="inp" value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="🔍  Search notes..." style={{maxWidth:"clamp(180px,30vw,260px)",borderRadius:10}}/>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {cats.map(c=>(
+            <button key={c} onClick={()=>setCatF(c)}
+              style={{padding:"7px clamp(10px,2vw,16px)",borderRadius:99,border:`1px solid ${catF===c?(catColor[c]||T.accent):T.border2}`,
+                background:catF===c?`${catColor[c]||T.accent}15`:T.card,
+                color:catF===c?(catColor[c]||T.accent):T.muted2,fontSize:"clamp(10px,1.2vw,12px)",
+                fontWeight:600,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap"}}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length===0
+        ?<div style={{textAlign:"center",padding:"80px 20px",color:T.muted}}>
+          <div style={{fontSize:48,marginBottom:14}}>📝</div>
+          <div style={{fontWeight:700,fontSize:20,marginBottom:8}}>{notes.length===0?"No notes available yet":"No results found"}</div>
+          <p style={{fontSize:14,color:T.muted2}}>{notes.length===0?"The admin will add study notes soon. Check back later!":"Try a different category or search term."}</p>
+        </div>
+        :<div className="grid-auto">
+          {filtered.map((n,i)=>{
+            const cc=catColor[n.category]||T.accent;
+            return(
+              <div key={n.id} className="card card-h"
+                style={{padding:"clamp(16px,2.5vw,22px)",animation:`fadeUp .4s ease ${i*.06}s both`,
+                  borderTop:`3px solid ${cc}`,cursor:"default",display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <span className="badge" style={{background:`${cc}15`,color:cc,border:`1px solid ${cc}33`,fontSize:10}}>{n.category||"General"}</span>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.muted,flexShrink:0}}>
+                    {n.createdAt?.seconds?new Date(n.createdAt.seconds*1000).toLocaleDateString("en-IN"):""}
+                  </span>
+                </div>
+                <div style={{fontWeight:800,fontSize:"clamp(14px,1.8vw,16px)",lineHeight:1.3}}>{n.title}</div>
+                {n.content&&(
+                  <div style={{fontSize:"clamp(12px,1.4vw,13px)",color:T.muted2,lineHeight:1.75,
+                    whiteSpace:"pre-wrap",background:T.bg3,borderRadius:8,padding:"12px 14px",
+                    fontFamily:"'JetBrains Mono',monospace",fontSize:12,
+                    maxHeight:200,overflowY:"auto",border:`1px solid ${T.border}`}}>
+                    {n.content}
+                  </div>
+                )}
+                {n.link&&(
+                  <a href={n.link} target="_blank" rel="noreferrer"
+                    style={{display:"inline-flex",alignItems:"center",gap:6,color:cc,fontSize:12,fontWeight:600,textDecoration:"none",
+                      background:`${cc}10`,border:`1px solid ${cc}33`,borderRadius:6,padding:"5px 12px",width:"fit-content",transition:"opacity .2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.opacity=".7"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                    🔗 Reference Link →
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      }
+    </div>
+  );
+}
+
+// ================================================================
+//  ADMIN NOTES TAB — Component used inside AdminPage
+// ================================================================
+function AdminNotesTab(){
+  const [notes,setNotes]=useState([]);
+  const [form,setForm]=useState({title:"",category:"Python",content:"",link:""});
+  const [show,setShow]=useState(false);
+  const [load,setLoad]=useState(false);
+  const [toast,setToast]=useState("");
+  const cats=["Python","C++","Web Dev","DSA","Cybersecurity","CP","General"];
+  const msg=t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
+  const catColor={Python:T.accent,"C++":T.blue,"Web Dev":T.pink,DSA:T.amber,Cybersecurity:T.purple,CP:T.cyan,General:T.muted2};
+
+  useEffect(()=>{
+    const q=query(collection(db,"notes"),orderBy("createdAt","desc"));
+    const unsub=onSnapshot(q,snap=>setNotes(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    return unsub;
+  },[]);
+
+  async function addNote(){
+    if(!form.title.trim()||!form.content.trim()){msg("❌ Title and content are required.");return;}
+    setLoad(true);
+    try{
+      const data={...form,createdAt:serverTimestamp(),notif:true};
+      await addDoc(collection(db,"notes"),data);
+      // Also add notification for all users
+      await addDoc(collection(db,"notifications"),{
+        title:`📝 New Note: ${form.title}`,
+        body:`Category: ${form.category} — Naya study material add hua!`,
+        createdAt:serverTimestamp(),type:"note"
+      });
+      setForm({title:"",category:"Python",content:"",link:""});
+      setShow(false);msg("✅ Note published! Notification sent to all users.");
+    }catch(e){msg("❌ "+e.message);}
+    setLoad(false);
+  }
+
+  async function delNote(id){
+    try{await deleteDoc(doc(db,"notes",id));msg("🗑 Note deleted successfully.");}
+    catch(e){msg("❌ "+e.message);}
+  }
+
+  return(
+    <div className="afi">
+      {toast&&<div style={{background:T.card,border:`1px solid ${T.accent}33`,borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:T.accent}}>{toast}</div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,flexWrap:"wrap",gap:12}}>
+        <div style={{fontWeight:700,fontSize:"clamp(14px,2vw,17px)"}}>Manage Notes <span className="badge ba" style={{marginLeft:8}}>{notes.length}</span></div>
+        <button className="btn-p" onClick={()=>setShow(!show)} style={{padding:"9px 22px",fontSize:13}}>{show?"✕ Cancel":"+ New Note"}</button>
+      </div>
+
+      {show&&(
+        <div style={{background:T.card,border:`1px solid ${T.accent}33`,borderRadius:12,padding:"clamp(18px,3vw,24px)",marginBottom:22}} className="afu">
+          <div style={{fontWeight:700,fontSize:15,marginBottom:16}}>📝 Naya Note Add Karo</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div><label className="lbl">Title *</label><input className="inp" value={form.title} placeholder="e.g. Python Lists — Complete Guide" onChange={e=>setForm(p=>({...p,title:e.target.value}))}/></div>
+            <div><label className="lbl">Category</label>
+              <select className="inp" value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
+                {cats.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div><label className="lbl">Content / Notes *</label>
+              <textarea className="inp" value={form.content} rows={6}
+                placeholder="Write your notes here — code snippets, explanations, examples..."
+                style={{resize:"vertical",fontFamily:"'JetBrains Mono',monospace",fontSize:12,lineHeight:1.7}}
+                onChange={e=>setForm(p=>({...p,content:e.target.value}))}/>
+            </div>
+            <div><label className="lbl">Reference Link (optional)</label><input className="inp" value={form.link} placeholder="https://..." onChange={e=>setForm(p=>({...p,link:e.target.value}))}/></div>
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
+            <button className="btn-p" onClick={addNote} disabled={load} style={{display:"flex",gap:8,alignItems:"center"}}>{load&&<Spinner/>}Publish Note & Notify All Users</button>
+            <button className="btn-s" onClick={()=>setShow(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {notes.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:T.muted,fontSize:14}}>No notes yet. Use the button above to add one!</div>}
+        {notes.map((n,i)=>{
+          const cc=catColor[n.category]||T.accent;
+          return(
+            <div key={n.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
+              padding:"clamp(12px,2vw,16px) clamp(14px,2.5vw,18px)",
+              borderLeft:`3px solid ${cc}`,display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                  <span className="badge" style={{background:`${cc}15`,color:cc,border:`1px solid ${cc}33`,fontSize:10}}>{n.category}</span>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.muted}}>
+                    {n.createdAt?.seconds?new Date(n.createdAt.seconds*1000).toLocaleDateString("en-IN"):""}
+                  </span>
+                </div>
+                <div style={{fontWeight:700,fontSize:"clamp(13px,1.6vw,14px)",marginBottom:4}}>{n.title}</div>
+                <div style={{fontSize:12,color:T.muted2,fontFamily:"'JetBrains Mono',monospace",
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"min(400px,60vw)"}}>{n.content?.slice(0,80)}...</div>
+              </div>
+              <button onClick={()=>delNote(n.id)} className="btn-r" style={{padding:"5px 12px",fontSize:12,flexShrink:0}}>🗑 Delete</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
+//  NOTIFICATIONS PAGE
+// ================================================================
+function NotificationsPage({user,setPage}){
+  const [notifs,setNotifs]=useState([]);
+  const [load,setLoad]=useState(true);
+  const [read,setRead]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("hs_read")||"[]");}catch{return [];}
+  });
+
+  useEffect(()=>{
+    const q=query(collection(db,"notifications"),orderBy("createdAt","desc"));
+    const unsub=onSnapshot(q,snap=>{
+      setNotifs(snap.docs.map(d=>({id:d.id,...d.data()})));
+      setLoad(false);
+    },()=>setLoad(false));
+    return unsub;
+  },[]);
+
+  const markAllRead=()=>{
+    const ids=notifs.map(n=>n.id);
+    localStorage.setItem("hs_read",JSON.stringify(ids));
+    setRead(ids);
+  };
+
+  if(load)return(<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"80vh",flexDirection:"column",gap:16}}><Spinner size={32}/></div>);
+
+  return(
+    <div className="page" style={{maxWidth:720,margin:"0 auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"clamp(20px,3vw,32px)",flexWrap:"wrap",gap:12}} className="afu">
+        <div>
+          <div className="stag">Updates</div>
+          <h1 style={{fontWeight:800,fontSize:"clamp(22px,3.5vw,36px)",letterSpacing:"-1px"}}>
+            Notifications <span style={{fontSize:"clamp(16px,2vw,22px)"}}>🔔</span>
+          </h1>
+        </div>
+        {notifs.some(n=>!read.includes(n.id))&&(
+          <button className="btn-s" onClick={markAllRead} style={{padding:"8px 18px",fontSize:13}}>Mark All Read</button>
+        )}
+      </div>
+
+      {notifs.length===0
+        ?<div style={{textAlign:"center",padding:"80px 20px",color:T.muted}}>
+          <div style={{fontSize:48,marginBottom:14}}>🔕</div>
+          <div style={{fontWeight:700,fontSize:20,marginBottom:8}}>No Notifications Yet</div>
+          <p style={{fontSize:14}}>Jab admin naya course ya notes add karega, yahan dikhega!</p>
+        </div>
+        :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {notifs.map((n,i)=>{
+            const isRead=read.includes(n.id);
+            const typeColor=n.type==="course"?T.accent:n.type==="note"?T.blue:T.amber;
+            return(
+              <div key={n.id} className="card card-h"
+                onClick={()=>{const r=[...read,n.id];setRead(r);localStorage.setItem("hs_read",JSON.stringify(r));}}
+                style={{padding:"clamp(14px,2.5vw,18px) clamp(16px,3vw,22px)",
+                  borderLeft:`3px solid ${isRead?T.border:typeColor}`,
+                  opacity:isRead?.75:1,cursor:"pointer",
+                  animation:`fadeUp .4s ease ${i*.05}s both`,
+                  background:isRead?T.card:`linear-gradient(135deg,${typeColor}06,${T.card})`}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}}>
+                  <div style={{flex:1}}>
+                    {!isRead&&<span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:typeColor,marginRight:8,marginBottom:1,verticalAlign:"middle"}}/>}
+                    <span style={{fontWeight:700,fontSize:"clamp(13px,1.6vw,15px)",color:isRead?T.muted2:T.text}}>{n.title}</span>
+                    {n.body&&<p style={{fontSize:"clamp(11px,1.3vw,13px)",color:T.muted2,marginTop:4,lineHeight:1.6}}>{n.body}</p>}
+                  </div>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.muted,flexShrink:0}}>
+                    {n.createdAt?.seconds?new Date(n.createdAt.seconds*1000).toLocaleDateString("en-IN"):""}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+    </div>
+  );
+}
+
+// ================================================================
+//  PROFILE PAGE — Update name, mobile, avatar color
+// ================================================================
+function ProfilePage({user,setUser,setPage}){
+  const COLORS=[T.accent,T.blue,T.pink,T.purple,T.amber,T.cyan,"#ff6b35","#e91e63","#4caf50","#ff5722"];
+  const [form,setForm]=useState({name:user?.name||"",mobile:user?.mobile||"",avatarColor:user?.avatarColor||T.accent});
+  const [load,setLoad]=useState(false);
+  const [succ,setSucc]=useState("");
+  const [err,setErr]=useState("");
+
+  async function save(){
+    if(!form.name.trim()){setErr("Name is required.");return;}
+    if(form.mobile&&!/^[6-9]\d{9}$/.test(form.mobile)){setErr("Please enter a valid 10-digit mobile number.");return;}
+    setLoad(true);setErr("");setSucc("");
+    try{
+      await updateDoc(doc(db,"users",user.uid),{name:form.name.trim(),mobile:form.mobile.trim(),avatarColor:form.avatarColor});
+      await updateProfile(auth.currentUser,{displayName:form.name.trim()});
+      setUser(p=>({...p,name:form.name.trim(),mobile:form.mobile.trim(),avatarColor:form.avatarColor}));
+      setSucc("✅ Profile updated successfully!");
+    }catch(e){setErr("Error: "+e.message);}
+    setLoad(false);
+  }
+
+  if(!user||user.role==="admin")return null;
+
+  return(
+    <div className="page" style={{maxWidth:560,margin:"0 auto"}}>
+      <button className="btn-g" onClick={()=>setPage("dashboard")} style={{marginBottom:20,display:"flex",alignItems:"center",gap:6,color:T.muted2}}>
+        ← Dashboard
+      </button>
+      <div style={{marginBottom:"clamp(22px,3vw,32px)"}} className="afu">
+        <div className="stag">Account</div>
+        <h1 style={{fontWeight:800,fontSize:"clamp(24px,4vw,36px)",letterSpacing:"-1.5px"}}>My <span className="gt2">Profile</span></h1>
+      </div>
+
+      {/* Avatar Preview */}
+      <div className="card" style={{padding:"clamp(20px,3vw,28px)",marginBottom:18,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}} className="afu">
+        <div style={{width:72,height:72,borderRadius:"50%",background:`linear-gradient(135deg,${form.avatarColor},${T.blue})`,
+          display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:28,color:T.bg,flexShrink:0,
+          boxShadow:`0 0 0 4px ${form.avatarColor}33`}}>
+          {form.name?.[0]?.toUpperCase()||user.name?.[0]?.toUpperCase()||"U"}
+        </div>
+        <div>
+          <div style={{fontWeight:700,fontSize:"clamp(16px,2vw,18px)"}}>{form.name||user.name}</div>
+          <div style={{fontSize:13,color:T.muted2,marginTop:2}}>{user.email}</div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,marginTop:4}}>Student · HackingSum.edu</div>
+        </div>
+      </div>
+
+      <div className="glass" style={{padding:"clamp(20px,3vw,28px)"}} className="afu">
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div>
+            <label className="lbl">Full Name *</label>
+            <input className="inp" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Your full name"/>
+          </div>
+          <div>
+            <label className="lbl">Email Address</label>
+            <input className="inp" value={user.email} disabled style={{opacity:.5,cursor:"not-allowed"}}/>
+            <div style={{fontSize:11,color:T.muted,marginTop:4}}>Email address cannot be changed.</div>
+          </div>
+          <div>
+            <label className="lbl">Mobile Number <span style={{fontFamily:"sans-serif",fontSize:9,color:T.muted,letterSpacing:0}}>(optional)</span></label>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:13,color:T.muted2,fontFamily:"'JetBrains Mono',monospace"}}>+91</span>
+              <input className="inp" value={form.mobile} onChange={e=>setForm(p=>({...p,mobile:e.target.value}))} placeholder="9876543210" maxLength={10} style={{paddingLeft:46}} type="tel"/>
+            </div>
+          </div>
+          <div>
+            <label className="lbl">Avatar Color</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+              {COLORS.map(c=>(
+                <button key={c} onClick={()=>setForm(p=>({...p,avatarColor:c}))}
+                  style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${c},${T.blue})`,border:`3px solid ${form.avatarColor===c?"#fff":"transparent"}`,cursor:"pointer",transition:"transform .2s",flexShrink:0}}
+                  onMouseEnter={e=>e.currentTarget.style.transform="scale(1.15)"} onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}/>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {err&&<div style={{marginTop:14,padding:"11px 14px",background:`${T.danger}12`,border:`1px solid ${T.danger}33`,borderRadius:8,fontSize:13,color:T.danger}}>{err}</div>}
+        {succ&&<div style={{marginTop:14,padding:"11px 14px",background:`${T.success}12`,border:`1px solid ${T.success}33`,borderRadius:8,fontSize:13,color:T.success}}>{succ}</div>}
+
+        <button className="btn-p" onClick={save} disabled={load}
+          style={{width:"100%",marginTop:20,padding:14,fontSize:15,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          {load&&<Spinner/>}{load?"Saving...":"Save Profile Changes ✓"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================
 //  FOOTER
 // ================================================================
 function Footer({setPage}){
@@ -1783,25 +2240,57 @@ function Footer({setPage}){
 }
 
 // ================================================================
-//  ROOT APP
+//  ROOT APP — Back button history + Notifications
 // ================================================================
 export default function App(){
   const [page,setPage]=useState("home");
+  const [history,setHistory]=useState(["home"]);
   const [user,setUser]=useState(null);
   const [courses,setCourses]=useState([]);
   const [watch,setWatch]=useState(null);
   const [booting,setBooting]=useState(true);
+  const [notifCount,setNotifCount]=useState(0);
 
+  // Back button — go to previous page in history
+  function goBack(){
+    if(history.length>1){
+      const prev=history[history.length-2];
+      setHistory(h=>h.slice(0,-1));
+      setPage(prev);
+    }else{
+      setPage("home");
+    }
+  }
+
+  // Navigate with history tracking
+  function navigate(p){
+    setHistory(h=>{
+      if(h[h.length-1]===p)return h;
+      return [...h.slice(-9),p]; // keep last 10
+    });
+    setPage(p);
+  }
+
+  // Browser back button support
+  useEffect(()=>{
+    const handler=(e)=>{e.preventDefault();goBack();};
+    window.addEventListener("popstate",handler);
+    return()=>window.removeEventListener("popstate",handler);
+  },[history]);
+
+  // Firebase Auth listener
   useEffect(()=>{
     return onAuthStateChanged(auth,async fbUser=>{
       if(fbUser){
         const snap=await getDoc(doc(db,"users",fbUser.uid));
         const p=snap.exists()?snap.data():{};
-        setUser({uid:fbUser.uid,name:fbUser.displayName||p.name||"Student",email:fbUser.email,role:p.role||"student"});
+        setUser({uid:fbUser.uid,name:fbUser.displayName||p.name||"Student",email:fbUser.email,
+          role:p.role||"student",mobile:p.mobile||"",avatarColor:p.avatarColor||T.accent});
       }else{setUser(null);}
     });
   },[]);
 
+  // Load courses
   useEffect(()=>{
     async function load(){
       await seedCoursesIfNeeded();
@@ -1814,11 +2303,24 @@ export default function App(){
     load().catch(()=>{setCourses(SEED_COURSES);setBooting(false);});
   },[]);
 
-  function logout(){signOut(auth);setUser(null);setPage("home");}
-
+  // Notification count — unread notifications
   useEffect(()=>{
-    if(!user&&["dashboard","my-learning","watch"].includes(page))setPage("login");
-    if(user?.role==="admin"&&["dashboard","my-learning"].includes(page))setPage("admin");
+    const q=query(collection(db,"notifications"),orderBy("createdAt","desc"));
+    const unsub=onSnapshot(q,snap=>{
+      try{
+        const readIds=JSON.parse(localStorage.getItem("hs_read")||"[]");
+        setNotifCount(snap.docs.filter(d=>!readIds.includes(d.id)).length);
+      }catch{setNotifCount(0);}
+    },()=>{});
+    return unsub;
+  },[]);
+
+  function logout(){signOut(auth);setUser(null);navigate("home");setHistory(["home"]);}
+
+  // Auth guard
+  useEffect(()=>{
+    if(!user&&["dashboard","my-learning","watch","profile","notes","notifications"].includes(page))navigate("login");
+    if(user?.role==="admin"&&["dashboard","my-learning"].includes(page))navigate("admin");
   },[page,user]);
 
   if(booting)return(
@@ -1832,21 +2334,42 @@ export default function App(){
     </>
   );
 
+  // Back button - show on non-home pages
+  const showBack=page!=="home"&&history.length>1;
+
   return(
     <>
       <style>{CSS}</style>
-      <Navbar page={page} setPage={setPage} user={user} onLogout={logout}/>
-      {page==="home"        &&<HomePage       setPage={setPage} courses={courses} user={user}/>}
-      {page==="login"       &&<AuthPage        initMode="login"    setPage={setPage} setUser={setUser}/>}
-      {page==="register"    &&<AuthPage        initMode="register" setPage={setPage} setUser={setUser}/>}
-      {page==="courses"     &&<CoursesPage     courses={courses} setPage={setPage} setWatch={setWatch}/>}
-      {page==="watch"       &&<WatchPage       watch={watch} setWatch={setWatch} courses={courses} setPage={setPage} user={user}/>}
-      {page==="about"       &&<AboutPage       setPage={setPage}/>}
-      {page==="dashboard"   &&user?.role!=="admin"&&<DashboardPage   user={user} courses={courses} setPage={setPage} setWatch={setWatch}/>}
-      {page==="my-learning" &&user?.role!=="admin"&&<MyLearningPage  user={user} courses={courses} setPage={setPage} setWatch={setWatch}/>}
-      {["admin","admin-courses","admin-students"].includes(page)&&user?.role==="admin"&&
-        <AdminPage tab={page==="admin-courses"?"courses":page==="admin-students"?"students":"overview"}
-          courses={courses} setCourses={setCourses} setPage={setPage}/>
+      <Navbar page={page} setPage={navigate} user={user} onLogout={logout} notifCount={notifCount}/>
+
+      {/* Floating Back Button */}
+      {showBack&&(
+        <button onClick={goBack}
+          style={{position:"fixed",bottom:"clamp(16px,3vw,28px)",right:"clamp(16px,3vw,28px)",zIndex:400,
+            background:T.card,border:`1px solid ${T.border2}`,borderRadius:99,
+            padding:"10px 18px",color:T.muted2,fontSize:13,fontWeight:600,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:7,boxShadow:"0 8px 32px rgba(0,0,0,.4)",
+            transition:"all .2s",backdropFilter:"blur(12px)"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border2;e.currentTarget.style.color=T.muted2;}}>
+          ← Back
+        </button>
+      )}
+
+      {page==="home"        &&<HomePage       setPage={navigate} courses={courses} user={user}/>}
+      {page==="login"       &&<AuthPage        initMode="login"    setPage={navigate} setUser={setUser}/>}
+      {page==="register"    &&<AuthPage        initMode="register" setPage={navigate} setUser={setUser}/>}
+      {page==="courses"     &&<CoursesPage     courses={courses} setPage={navigate} setWatch={setWatch}/>}
+      {page==="watch"       &&<WatchPage       watch={watch} setWatch={setWatch} courses={courses} setPage={navigate} user={user}/>}
+      {page==="about"       &&<AboutPage       setPage={navigate}/>}
+      {page==="notes"       &&<NotesPage       user={user} setPage={navigate}/>}
+      {page==="notifications"&&user&&<NotificationsPage user={user} setPage={navigate}/>}
+      {page==="profile"     &&user&&user.role!=="admin"&&<ProfilePage user={user} setUser={setUser} setPage={navigate}/>}
+      {page==="dashboard"   &&user?.role!=="admin"&&<DashboardPage   user={user} courses={courses} setPage={navigate} setWatch={setWatch}/>}
+      {page==="my-learning" &&user?.role!=="admin"&&<MyLearningPage  user={user} courses={courses} setPage={navigate} setWatch={setWatch}/>}
+      {["admin","admin-courses","admin-notes","admin-students"].includes(page)&&user?.role==="admin"&&
+        <AdminPage tab={page==="admin-courses"?"courses":page==="admin-notes"?"notes":page==="admin-students"?"students":"overview"}
+          courses={courses} setCourses={setCourses} setPage={navigate}/>
       }
     </>
   );
