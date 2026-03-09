@@ -44,9 +44,15 @@ const db   = getFirestore(firebaseApp);
 //  To remove an admin: delete their entry
 // ================================================================
 const ADMINS = [
- { email: "shakti@hackingsum.edu",  password: "Heartless$12"},
-  { email: "bihar@hackingsum.edu", password: "Bihar@sarkar" }, // ← uncomment to add
-];
+  {
+    email:    import.meta.env.VITE_ADMIN_EMAIL    || "",
+    password: import.meta.env.VITE_ADMIN_PASSWORD || "",
+  },
+  ...(import.meta.env.VITE_ADMIN2_EMAIL ? [{
+    email:    import.meta.env.VITE_ADMIN2_EMAIL    || "",
+    password: import.meta.env.VITE_ADMIN2_PASSWORD || "",
+  }] : []),
+].filter(a => a.email !== "");
 
 // Helper — checks if email+password matches any admin
 const isAdmin = (email, pass) =>
