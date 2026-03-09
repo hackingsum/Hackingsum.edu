@@ -1,5 +1,6 @@
 
 
+
 import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import {
@@ -19,7 +20,7 @@ import {
 //  🔴 APNA FIREBASE CONFIG YAHAN DAALO
 // ================================================================
 const firebaseConfig = {
- apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
+  apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
 
   authDomain: "hackingsum-edu.firebaseapp.com",
 
@@ -36,8 +37,23 @@ const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db   = getFirestore(firebaseApp);
 
-const ADMIN_EMAIL    = "admin@hackingsum.edu";
-const ADMIN_PASSWORD = "Admin@123";
+// ================================================================
+//  🔴 ADMIN CREDENTIALS — Add/remove admins here
+//  To add a new admin: add a new { email, password } entry below
+//  To change password: just update the password field
+//  To remove an admin: delete their entry
+// ================================================================
+const ADMINS = [
+  { email: "shakti@hackingsum.edu",  password: "Heartless$12"       },
+  { email: "bihar@hackingsum.edu", password: "Bihar@sarkar" }, // ← uncomment to add
+];
+
+// Helper — checks if email+password matches any admin
+const isAdmin = (email, pass) =>
+  ADMINS.some(a => a.email === email && a.password === pass);
+
+const ADMIN_EMAIL    = ADMINS[0].email;    // kept for backward compat
+const ADMIN_PASSWORD = ADMINS[0].password;
 
 // ================================================================
 //  SEED COURSES
@@ -874,8 +890,9 @@ function AuthPage({initMode,setPage,setUser}){
         setLoading(false);return;
       }
       if(mode==="login"){
-        if(form.email===ADMIN_EMAIL&&form.password===ADMIN_PASSWORD){
-          setUser({uid:"admin",name:"Admin",email:ADMIN_EMAIL,role:"admin"});
+        if(isAdmin(form.email, form.password)){
+          const adminEntry = ADMINS.find(a=>a.email===form.email);
+          setUser({uid:"admin",name:"Admin",email:form.email,role:"admin"});
           setPage("admin");setLoading(false);return;
         }
         const res=await signInWithEmailAndPassword(auth,form.email,form.password);
