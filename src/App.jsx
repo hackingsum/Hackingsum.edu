@@ -7742,7 +7742,7 @@ function Footer({setPage}){
         <div className="footer-grid" style={{marginBottom:"clamp(32px,5vw,48px)"}}>
           <div>
             <div style={{marginBottom:14}}><Logo scale={.85}/></div>
-            <p style={{fontSize:13,color:T.muted2,lineHeight:1.8,maxWidth:260}}>Free coding education. Powered by Firebase. Built for students. Always free.</p>
+            <p style={{fontSize:13,color:T.muted2,lineHeight:1.8,maxWidth:260}}>Built for students. Always free.</p>
           </div>
           {[
             {title:"Courses",links:[
@@ -7786,8 +7786,8 @@ function Footer({setPage}){
         </div>
         <div className="divider"/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,paddingTop:"clamp(16px,2.5vw,24px)"}}>
-          <p style={{fontSize:12,color:T.muted}}>© 2026 <span style={{color:T.accent,fontWeight:600}}>HackingSum.edu</span> </p>
-          <p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.accent}}>while(true)&#123;learn();build();hack();&#125;</p>
+          <p style={{fontSize:12,color:T.muted}}>© 2026  <span style={{color:T.accent,fontWeight:600}}> HackingSum.edu</span> </p>
+          <p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.accent}}>hackingsum.in</p>
         </div>
       </div>
     </footer>
