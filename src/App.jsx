@@ -7786,7 +7786,7 @@ function Footer({setPage}){
         </div>
         <div className="divider"/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,paddingTop:"clamp(16px,2.5vw,24px)"}}>
-          <p style={{fontSize:12,color:T.muted}}>© 2025 <span style={{color:T.accent,fontWeight:600}}>HackingSum.edu</span> · Free forever · Powered by Firebase</p>
+          <p style={{fontSize:12,color:T.muted}}>© 2026 <span style={{color:T.accent,fontWeight:600}}>HackingSum.edu</span> </p>
           <p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.accent}}>while(true)&#123;learn();build();hack();&#125;</p>
         </div>
       </div>
