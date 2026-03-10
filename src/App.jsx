@@ -1,6 +1,5 @@
 
-
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getAuth, createUserWithEmailAndPassword,
@@ -15,21 +14,18 @@ import {
   where
 } from "firebase/firestore";
 
-// ================================================================
-//  🔴 APNA FIREBASE CONFIG YAHAN DAALO
-// ================================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
-
-  authDomain: "hackingsum-edu.firebaseapp.com",
-
-  projectId: "hackingsum-edu",
-
-  storageBucket: "hackingsum-edu.firebasestorage.app",
-
-  messagingSenderId: "125564185388",
-
-  appId: "1:125564185388:web:136ac153537c820aff5a89"
+apiKey: "AIzaSyCpa1KFbnlNG6-ArSC9VKyflXSVLUrFgBo",
+ 
+   authDomain: "hackingsum-edu.firebaseapp.com",
+ 
+   projectId: "hackingsum-edu",
+ 
+   storageBucket: "hackingsum-edu.firebasestorage.app",
+ 
+   messagingSenderId: "125564185388",
+ 
+   appId: "1:125564185388:web:136ac153537c820aff5a89"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -42,23 +38,21 @@ const ADMINS = [
     email:    import.meta.env.VITE_ADMIN_EMAIL    || "",
     password: import.meta.env.VITE_ADMIN_PASSWORD || "",
   },
-  // Optional second admin
+ 
   ...(import.meta.env.VITE_ADMIN2_EMAIL ? [{
     email:    import.meta.env.VITE_ADMIN2_EMAIL    || "",
     password: import.meta.env.VITE_ADMIN2_PASSWORD || "",
   }] : []),
-].filter(a => a.email !== "");  // remove empty entries
+].filter(a => a.email !== "");  
 
-// Helper — checks if email+password matches any admin
+
 const isAdmin = (email, pass) =>
   ADMINS.some(a => a.email === email && a.password === pass);
 
 const ADMIN_EMAIL    = ADMINS[0]?.email    || "";
 const ADMIN_PASSWORD = ADMINS[0]?.password || "";
 
-// ================================================================
-//  SEED COURSES
-// ================================================================
+
 const SEED_COURSES = [
   { id:"c1", title:"Python Zero to Hero", category:"Programming", level:"Beginner", color:"#00f5c4", icon:"🐍", instructor:"HackingSum Team",
     description:"Master Python from scratch — variables, data structures, OOP, file I/O and real projects.",
@@ -416,6 +410,8 @@ async function getProgress(uid){
   return snap.exists()?snap.data():{};
 }
 async function seedCoursesIfNeeded(){
+  if(sessionStorage.getItem("hs_seeded"))return;
+  sessionStorage.setItem("hs_seeded","1");
   const snap=await getDocs(collection(db,"courses"));
   if(snap.empty) for(const c of SEED_COURSES) await setDoc(doc(db,"courses",c.id),{...c,createdAt:serverTimestamp()});
 }
@@ -1111,20 +1107,18 @@ function AuthPage({initMode,setPage,setUser}){
 // ================================================================
 //  DASHBOARD
 // ================================================================
-function DashboardPage({user,courses,setPage,setWatch}){
-  const [prog,setProg]=useState({});
-  const [load,setLoad]=useState(true);
+function DashboardPage({user,courses,setPage,setWatch,progress}){
+  const prog=progress||{};
+  const load=false;
 
-  useEffect(()=>{
-    if(!user?.uid)return;
-    getProgress(user.uid).then(p=>{setProg(p);setLoad(false);});
-  },[user?.uid]);
-
-  const totalV=courses.reduce((a,c)=>a+c.videos.length,0);
-  const watchedV=courses.reduce((a,c)=>a+(prog[c.id]||[]).length,0);
-  const pct=totalV>0?Math.round((watchedV/totalV)*100):0;
-  const inProg=courses.filter(c=>{const w=(prog[c.id]||[]).length;return w>0&&w<c.videos.length;});
-  const done=courses.filter(c=>c.videos.length>0&&c.videos.every(v=>(prog[c.id]||[]).includes(v.id)));
+  const {totalV,watchedV,pct,inProg,done}=useMemo(()=>{
+    const totalV=courses.reduce((a,c)=>a+c.videos.length,0);
+    const watchedV=courses.reduce((a,c)=>a+(prog[c.id]||[]).length,0);
+    const pct=totalV>0?Math.round((watchedV/totalV)*100):0;
+    const inProg=courses.filter(c=>{const w=(prog[c.id]||[]).length;return w>0&&w<c.videos.length;});
+    const done=courses.filter(c=>c.videos.length>0&&c.videos.every(v=>(prog[c.id]||[]).includes(v.id)));
+    return{totalV,watchedV,pct,inProg,done};
+  },[courses,prog]);
 
   const MENU=[
     {icon:"📚",label:"Courses",desc:"All video courses",pg:"courses",color:T.accent},
@@ -1137,11 +1131,7 @@ function DashboardPage({user,courses,setPage,setWatch}){
     {icon:"👤",label:"Profile",desc:"Edit your profile",pg:"profile",color:"#a855f7"},
   ];
 
-  if(load)return(
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"80vh",flexDirection:"column",gap:16}}>
-      <Spinner size={32}/><p style={{color:T.muted,fontSize:14}}>Loading...</p>
-    </div>
-  );
+
 
   return(
     <div className="page" style={{maxWidth:1100,margin:"0 auto"}}>
@@ -1376,8 +1366,11 @@ function CoursesPage({courses,setPage,setWatch}){
 // ================================================================
 function WatchPage({watch,setWatch,courses,setPage,user}){
   const {course,video}=watch||{};
+  const savedRef=useRef("");
   useEffect(()=>{
-    if(!user?.uid||!course?.id||!video?.id||user.role==="admin")return;
+    const key=`${course?.id}__${video?.id}`;
+    if(!user?.uid||!course?.id||!video?.id||user.role==="admin"||savedRef.current===key)return;
+    savedRef.current=key;
     saveProgress(user.uid,course.id,video.id);
   },[video?.id,course?.id,user?.uid]);
 
@@ -1467,15 +1460,8 @@ function WatchPage({watch,setWatch,courses,setPage,user}){
 // ================================================================
 //  MY LEARNING
 // ================================================================
-function MyLearningPage({user,courses,setPage,setWatch}){
-  const [prog,setProg]=useState({});
-  const [load,setLoad]=useState(true);
-  useEffect(()=>{
-    if(!user?.uid)return;
-    getProgress(user.uid).then(p=>{setProg(p);setLoad(false);});
-  },[user?.uid]);
-
-  if(load)return(<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"80vh",flexDirection:"column",gap:16}}><Spinner size={32}/><p style={{color:T.muted,fontSize:14}}>Loading from Firebase...</p></div>);
+function MyLearningPage({user,courses,setPage,setWatch,progress}){
+  const prog=progress||{};
 
   const started=courses.filter(c=>(prog[c.id]||[]).length>0);
   const done=courses.filter(c=>c.videos.length>0&&c.videos.every(v=>(prog[c.id]||[]).includes(v.id)));
@@ -1764,9 +1750,13 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
   useEffect(()=>{
     if(tab!=="students")return;
     setStudErr("");
+    // Try session cache first
+    const sc=sessionStorage.getItem("hs_students");
+    if(sc){try{setStudents(JSON.parse(sc));return;}catch{}}
     getDocs(collection(db,"users"))
       .then(snap=>{
         const all=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
+        sessionStorage.setItem("hs_students",JSON.stringify(all));
         setStudents(all);
       })
       .catch(e=>{
@@ -2435,540 +2425,3984 @@ function ProfilePage({user,setUser,setPage}){
 //  QUIZ DATA — 3 LEVELS × 6 COURSES × 20 QUESTIONS = 360 total
 //  Levels: basic | intermediate | advanced
 // ================================================================
+
+// ================================================================
+//  QUIZ DATA — 20 questions per level per course
+//  Options are stored in ORIGINAL order; shuffleQ() randomises them
+//  at runtime so the correct answer is never always B.
+// ================================================================
 const STATIC_QUIZ = {
   c1:{
     basic:[
-      {q:"What does 'print()' do in Python?",opts:["Takes input","Displays output","Imports module","Defines function"],ans:1,topic:"Basics"},
-      {q:"Which symbol is used for comments in Python?",opts:["//","/* */","#","--"],ans:2,topic:"Basics"},
-      {q:"What is the output of: type(3.14)?",opts:["int","str","float","double"],ans:2,topic:"Basics"},
-      {q:"Which of these is a valid Python variable name?",opts:["2name","my-var","_score","class"],ans:2,topic:"Basics"},
-      {q:"How do you take user input in Python?",opts:["scan()","input()","get()","read()"],ans:1,topic:"Basics"},
-      {q:"What does len('hello') return?",opts:["4","5","6","Error"],ans:1,topic:"Basics"},
-      {q:"Which keyword is used to define a function?",opts:["fun","func","def","function"],ans:2,topic:"Functions"},
+      {q:"What does 'print()' do in Python?",opts:["Imports module","Takes input","Defines function","Displays output"],ans:3,topic:"Basics"},
+      {q:"Which symbol is used for comments in Python?",opts:["--","/* */","#","//"],ans:2,topic:"Basics"},
+      {q:"What is the output of: type(3.14)?",opts:["int","str","double","float"],ans:3,topic:"Basics"},
+      {q:"Which is a valid Python variable name?",opts:["2name","my-var","_score","class"],ans:2,topic:"Basics"},
+      {q:"How do you take user input in Python?",opts:["scan()","get()","read()","input()"],ans:3,topic:"Basics"},
+      {q:"What does len('hello') return?",opts:["Error","6","4","5"],ans:3,topic:"Basics"},
+      {q:"Which keyword defines a function?",opts:["function","fun","def","func"],ans:2,topic:"Functions"},
       {q:"How do you create a list in Python?",opts:["{}","()","[]","<>"],ans:2,topic:"Data Types"},
-      {q:"What is the output of: 10 // 3?",opts:["3.33","3","4","Error"],ans:1,topic:"Operators"},
-      {q:"How do you start a for loop in Python?",opts:["for i = 0","for(i=0;i<n;i++)","for i in range(n):","foreach i in n:"],ans:2,topic:"Loops"},
-      {q:"What does 'break' do in a loop?",opts:["Skips current iteration","Exits the loop","Restarts loop","None"],ans:1,topic:"Loops"},
-      {q:"How do you check if a key exists in a dictionary?",opts:["dict.has(key)","key in dict","dict.exists(key)","dict.find(key)"],ans:1,topic:"Data Structures"},
-      {q:"What is 'None' in Python?",opts:["Zero","Empty string","Null value","False"],ans:2,topic:"Basics"},
-      {q:"Which operator checks equality in Python?",opts:["=","==","===","!="],ans:1,topic:"Operators"},
-      {q:"What does 'append()' do to a list?",opts:["Removes last item","Adds item to end","Sorts list","Reverses list"],ans:1,topic:"Data Structures"},
-      {q:"How do you get the number of items in a list 'a'?",opts:["a.size()","a.length","len(a)","count(a)"],ans:2,topic:"Data Structures"},
-      {q:"What is the output of: 'Hello' + ' World'?",opts:["Error","Hello World","HelloWorld","Hello + World"],ans:1,topic:"Strings"},
-      {q:"Which statement handles exceptions in Python?",opts:["catch","try-except","handle","error-check"],ans:1,topic:"Error Handling"},
-      {q:"What does 'import' do in Python?",opts:["Exports module","Loads a module for use","Deletes module","Creates module"],ans:1,topic:"Modules"},
-      {q:"How do you write a single-line if condition?",opts:["if(x>0)","if x > 0:","if x > 0 then","x > 0 ? yes : no"],ans:1,topic:"Conditionals"},
+      {q:"What is the output of: 10 // 3?",opts:["3","4","3.33","Error"],ans:0,topic:"Operators"},
+      {q:"How do you start a for loop in Python?",opts:["for(i=0;i<n;i++)","foreach i in n:","for i in range(n):","for i = 0"],ans:2,topic:"Loops"},
+      {q:"What does 'break' do in a loop?",opts:["None","Skips iteration","Restarts loop","Exits the loop"],ans:3,topic:"Loops"},
+      {q:"How to check if key exists in a dict?",opts:["dict.find(key)","dict.exists(key)","dict.has(key)","key in dict"],ans:3,topic:"Data Structures"},
+      {q:"What is 'None' in Python?",opts:["Empty string","Zero","Null value","False"],ans:2,topic:"Basics"},
+      {q:"Which operator checks equality?",opts:["===","!=","=","=="],ans:3,topic:"Operators"},
+      {q:"What does 'append()' do to a list?",opts:["Adds item to end","Removes last item","Reverses list","Sorts list"],ans:0,topic:"Data Structures"},
+      {q:"How do you get number of items in list 'a'?",opts:["count(a)","len(a)","a.length","a.size()"],ans:1,topic:"Data Structures"},
+      {q:"What is output of: 'Hello' + ' World'?",opts:["Error","Hello + World","HelloWorld","Hello World"],ans:3,topic:"Strings"},
+      {q:"Which handles exceptions in Python?",opts:["catch","error-check","try-except","handle"],ans:2,topic:"Error Handling"},
+      {q:"What does 'import' do?",opts:["Creates module","Deletes module","Exports module","Loads a module for use"],ans:3,topic:"Modules"},
+      {q:"How to write a single-line if condition?",opts:["if x > 0:","if(x>0)","if x > 0 then","x > 0 ? yes : no"],ans:0,topic:"Conditionals"},
+      {q:"What is the output of: 2 ** 3?",opts:["8","9","23","6"],ans:0,topic:"Operators"},
+      {q:"How do you convert string to int?",opts:["int('5')","num('5')","float('5')","str('5')"],ans:0,topic:"Type Conversion"},
+      {q:"What does 'continue' do in a loop?",opts:["Exits loop","Pauses loop","Breaks program","Skips to next iteration"],ans:3,topic:"Loops"},
+      {q:"What is a tuple in Python?",opts:["Dictionary","Set","Immutable ordered sequence","Mutable list"],ans:2,topic:"Data Types"},
+      {q:"How do you define a dictionary?",opts:["('key','val')","{'key':'val'}","['key','val']","<key:val>"],ans:1,topic:"Data Types"},
+      {q:"What is the output of: bool(0)?",opts:["True","Error","False","None"],ans:2,topic:"Basics"},
+      {q:"How do you get the last item of list L?",opts:["L[len-1]","L.end()","L[last]","L[-1]"],ans:3,topic:"Data Structures"},
+      {q:"What is a string in Python?",opts:["Number","Boolean","Sequence of characters","List of chars"],ans:2,topic:"Strings"},
+      {q:"How do you repeat a string 3 times?",opts:["'hi'+3","repeat('hi',3)","'hi'*3","'hi'**3"],ans:2,topic:"Strings"},
+      {q:"What does 'pass' do in Python?",opts:["Does nothing — placeholder","Exits function","Continues loop","Skips line"],ans:0,topic:"Syntax"},
+      {q:"What is the output of: 5 % 2?",opts:["3","1","0","2"],ans:1,topic:"Operators"},
+      {q:"How do you check type of variable x?",opts:["type(x)","typeOf(x)","typeof(x)","x.type()"],ans:0,topic:"Basics"},
+      {q:"What does 'str()' do?",opts:["Converts to string","Converts to int","Converts to bool","Creates list"],ans:0,topic:"Type Conversion"},
+      {q:"How do you write multiline string?",opts:["\n in string","String[]","Triple quotes (3 double-quotes)","Multi()"],ans:2,topic:"Strings"},
+      {q:"What is output of: list(range(3))?",opts:["[1, 2, 3]","[0, 1, 2, 3]","[0, 1, 2]","range(3)"],ans:2,topic:"Data Types"},
+      {q:"What does 'else' after 'for' loop mean?",opts:["Runs after every iteration","Runs on error","Runs if list empty","Runs if loop not broken"],ans:3,topic:"Loops"},
+      {q:"How to remove last item from list L?",opts:["L.remove()","L.pop()","L.delete()","del L[-1]"],ans:1,topic:"Data Structures"},
+      {q:"What is output of: not True?",opts:["False","None","True","Error"],ans:0,topic:"Operators"},
+      {q:"How to convert list to tuple?",opts:["(L)","tuple(L)","toTuple(L)","L.totuple()"],ans:1,topic:"Type Conversion"},
+      {q:"What does 'in' operator do?",opts:["Indexes into","Loops over","Imports","Checks membership"],ans:3,topic:"Operators"},
+      {q:"What is the output of: 'abc'[1]?",opts:["abc","a","b","c"],ans:2,topic:"Strings"},
+      {q:"How to create empty set?",opts:["[]","{}","set()","()"],ans:2,topic:"Data Types"},
+      {q:"What does dict.keys() return?",opts:["Length","All values","All items","All keys"],ans:3,topic:"Data Structures"},
+      {q:"What is output of: max([3,1,4,1,5])?",opts:["1","5","3","4"],ans:1,topic:"Built-ins"},
+      {q:"How to sort a list in-place?",opts:["sorted(L)","L.sort()","sort(L)","L.order()"],ans:1,topic:"Data Structures"},
+      {q:"What does 'global' keyword do?",opts:["Imports module","Declares global variable","Deletes variable","Creates function"],ans:1,topic:"Scope"},
+      {q:"What is output of: 'hello'.upper()?",opts:["ERROR","hello","Hello","HELLO"],ans:3,topic:"Strings"},
+      {q:"How to check if string S starts with 'Hi'?",opts:["S.starts('Hi')","S[:2]=='Hi'","S.startswith('Hi')","S.begin('Hi')"],ans:2,topic:"Strings"},
+      {q:"What is output of: [1,2]+[3,4]?",opts:["[4,6]","[1,2,3,4]","[1,2],[3,4]","Error"],ans:1,topic:"Lists"},
+      {q:"What does enumerate() return?",opts:["Only values","Only indices","Dictionary","Index-value pairs"],ans:3,topic:"Iteration"},
+      {q:"How to get substring from index 1 to 3?",opts:["S.slice(1,3)","S[1,3]","S.sub(1,3)","S[1:3]"],ans:3,topic:"Strings"},
+      {q:"What is a default argument in function?",opts:["Mandatory argument","Global variable","Return value","Value used if arg not provided"],ans:3,topic:"Functions"},
+      {q:"What does zip() do?",opts:["Pairs elements from iterables","Merges dicts","Sorts lists","Compresses data"],ans:0,topic:"Iteration"},
+      {q:"What is output of: round(3.7)?",opts:["4","3.7","Error","3"],ans:0,topic:"Built-ins"},
+      {q:"How to read a file in Python?",opts:["load('f')","open('f').read()","file('f')","read('f')"],ans:1,topic:"File Handling"},
+      {q:"What does strip() do?",opts:["Removes leading/trailing whitespace","Counts chars","Splits string","Reverses string"],ans:0,topic:"Strings"},
+      {q:"What is output of: min(3,1,4)?",opts:["1","3","4","min"],ans:0,topic:"Built-ins"},
+      {q:"How to write to a file?",opts:["write('f')","file.write('f')","save('f')","open('f','w').write()"],ans:3,topic:"File Handling"},
+      {q:"What does isinstance(x, int) return?",opts:["type of x","Always True","x as int","True if x is int"],ans:3,topic:"Type Checking"},
+      {q:"What is output of: {1,2,2,3}?",opts:["(1,2,3)","{1,2,3}","[1,2,3]","{1,2,2,3}"],ans:1,topic:"Data Types"},
+      {q:"What is a module in Python?",opts:["Class","Function","Variable","File with Python code"],ans:3,topic:"Modules"},
+      {q:"How to install a package?",opts:["get pkg","import pkg","pip install pkg","python install pkg"],ans:2,topic:"Modules"},
+      {q:"What does os.getcwd() return?",opts:["Home directory","Python path","Current directory","File list"],ans:2,topic:"OS Module"},
+      {q:"What is output of: abs(-5)?",opts:["5","-5","Error","0"],ans:0,topic:"Built-ins"},
+      {q:"How to shuffle a list randomly?",opts:["random(L)","random.shuffle(L)","shuffle(L)","L.shuffle()"],ans:1,topic:"Random"},
+      {q:"What does map(str, [1,2,3]) return?",opts:["Error","List of strings","Iterator of strings","['1','2','3']"],ans:2,topic:"Functional"},
+      {q:"What is a lambda function?",opts:["Named function","Class method","Anonymous single-expression function","Built-in"],ans:2,topic:"Functions"},
+      {q:"How to merge two dicts in Python 3.9+?",opts:["d1.merge(d2)","d1 + d2","merge(d1,d2)","d1 | d2"],ans:3,topic:"Data Structures"},
+      {q:"What does filter() do?",opts:["Filters iterable by function","Counts items","Removes duplicates","Sorts list"],ans:0,topic:"Functional"},
+      {q:"What is output of: 'py' in 'python'?",opts:["False","True","Error","None"],ans:1,topic:"Strings"},
+      {q:"How to get all values of dict D?",opts:["values(D)","D.vals()","D.items()","D.values()"],ans:3,topic:"Data Structures"},
+      {q:"What does any() do?",opts:["Returns True if all True","Filters True","Returns True if any element is True","Counts True"],ans:2,topic:"Built-ins"},
+      {q:"What does all() do?",opts:["Counts True","Filters True","Returns True if all elements are True","Returns True if any True"],ans:2,topic:"Built-ins"},
+      {q:"How to count occurrences of x in list L?",opts:["L.find(x)","L.count(x)","L.index(x)","count(L,x)"],ans:1,topic:"Data Structures"},
+      {q:"What is output of: list(map(lambda x:x*2,[1,2,3]))?",opts:["[[2],[4],[6]]","[2,4,6]","[1,2,3]","Error"],ans:1,topic:"Functional"},
+      {q:"How do you copy a list?",opts:["L[:]","Both L.copy() and L[:]","copy(L)","L.copy()"],ans:3,topic:"Data Structures"},
+      {q:"What is output of: 'hello'.replace('l','r')?",opts:["hello","Error","heLLo","herro"],ans:3,topic:"Strings"},
+      {q:"What does 'with' statement ensure?",opts:["Faster execution","Error handling","Loop optimization","Proper resource cleanup"],ans:3,topic:"File Handling"},
+      {q:"How to get index of item in list?",opts:["L.index(item)","indexOf(L,item)","L.find(item)","L.pos(item)"],ans:0,topic:"Data Structures"},
+      {q:"What is output of: bool('') ?",opts:["None","False","Error","True"],ans:1,topic:"Basics"},
+      {q:"What is a class in Python?",opts:["Module","Blueprint for objects","Variable type","Function group"],ans:1,topic:"OOP"},
+      {q:"How to create object of class Dog?",opts:["Dog()","Dog.create()","new Dog()","object(Dog)"],ans:0,topic:"OOP"},
+      {q:"What does __init__ do?",opts:["Initializes object","Copies object","Deletes object","Prints object"],ans:0,topic:"OOP"},
+      {q:"What is 'self' in a class method?",opts:["Parent class","Return value","Reference to current instance","Class name"],ans:2,topic:"OOP"},
+      {q:"What is inheritance?",opts:["Creating objects","Importing module","Child class gets parent's properties","Copying code"],ans:2,topic:"OOP"},
+      {q:"How to call parent class method?",opts:["parent.method()","Parent::method()","super().method()","base.method()"],ans:2,topic:"OOP"},
+      {q:"What is method overriding?",opts:["Creating new method","Child redefines parent method","Deleting parent","Copying method"],ans:1,topic:"OOP"},
+      {q:"What is encapsulation?",opts:["Inheriting","Importing","Creating objects","Hiding data inside class"],ans:3,topic:"OOP"},
+      {q:"How to make attribute private?",opts:["name_priv","name.private","_name or __name","private name"],ans:2,topic:"OOP"},
+      {q:"What does __str__ return?",opts:["Object id","String representation of object","Object copy","Object type"],ans:1,topic:"OOP"},
+      {q:"What is a class variable?",opts:["Module var","Shared by all instances","Global variable","Unique per instance"],ans:1,topic:"OOP"},
+      {q:"How to check if object is instance of class?",opts:["obj is Class","type(obj)==Class","obj.class==Class","isinstance(obj, Class)"],ans:3,topic:"OOP"},
+      {q:"What is abstraction?",opts:["Importing","Copying code","Hiding complexity, showing essentials","Inheriting"],ans:2,topic:"OOP"},
+      {q:"What is polymorphism?",opts:["Same interface, different behavior","Many methods","Many classes","Multiple inheritance"],ans:0,topic:"OOP"},
+      {q:"What does @classmethod decorator do?",opts:["Method receives class as first arg","Hides method","Makes static","Removes method"],ans:0,topic:"OOP"},
+      {q:"What is __repr__?",opts:["Object hash","Official string representation for devs","User friendly string","Object id"],ans:1,topic:"OOP"},
+      {q:"What is multiple inheritance?",opts:["Multiple objects","Multiple modules","Multiple methods","Class inherits from multiple parents"],ans:3,topic:"OOP"},
+      {q:"How to define abstract class?",opts:["Use abstract keyword","Use interface keyword","Use virtual keyword","Use ABC from abc module"],ans:3,topic:"OOP"},
+      {q:"What is a mixin?",opts:["Module","Abstract class","Class providing methods for reuse","Interface"],ans:2,topic:"OOP"},
+      {q:"What does __len__ enable?",opts:["Iteration","Indexing","Comparison","len() to work on custom class"],ans:3,topic:"OOP"},
+      {q:"What is a generator function?",opts:["Imports module","Returns list","Uses yield to produce values lazily","Creates class"],ans:2,topic:"Generators"},
+      {q:"What does 'yield' do?",opts:["Returns and exits","Pauses function and returns value","Imports","Loops"],ans:1,topic:"Generators"},
+      {q:"How to create list comprehension?",opts:["(expr for x)","[expr for x in iterable]","expr for x in iterable","list(expr for x)"],ans:1,topic:"Comprehensions"},
+      {q:"What is a dict comprehension?",opts:["dict[k for k in d]","{k:v for k,v in items}","d.comprehend()","{k:v} for k in d"],ans:1,topic:"Comprehensions"},
+      {q:"What is a set comprehension?",opts:["set(x for x)","(x for x in iterable)","[x for x in iterable]","{x for x in iterable}"],ans:3,topic:"Comprehensions"},
+      {q:"What does *args do in function?",opts:["Returns multiple","Accepts variable positional args","Accepts one arg","Accepts keyword args"],ans:1,topic:"Functions"},
+      {q:"What does **kwargs do?",opts:["Unpacks list","Accepts positional","Accepts variable keyword args as dict","Returns dict"],ans:2,topic:"Functions"},
+      {q:"How to unpack list into function args?",opts:["func(unpack(L))","func(*L)","func(L)","func(**L)"],ans:1,topic:"Functions"},
+      {q:"What is a closure?",opts:["Generator","Function in loop","Recursive function","Function remembering its outer scope"],ans:3,topic:"Advanced"},
+      {q:"What is a decorator?",opts:["Class method","Lambda","Function that wraps another function","Generator"],ans:2,topic:"Advanced"},
+      {q:"What does functools.wraps do?",opts:["Times function","Copies function","Preserves original function metadata","Imports function"],ans:2,topic:"Advanced"},
+      {q:"What is memoization?",opts:["Caching results to avoid recomputation","Loop optimization","Garbage collection","Memory management"],ans:0,topic:"Optimization"},
+      {q:"What is a context manager?",opts:["Loop control","Object managing setup/teardown with 'with'","Error handler","Memory manager"],ans:1,topic:"Advanced"},
+      {q:"What does __enter__ and __exit__ do?",opts:["Init and delete","Start and stop threads","Open and close files","Define context manager behavior"],ans:3,topic:"Advanced"},
+      {q:"What is tail recursion?",opts:["Middle recursion","Any recursion","First recursion","Recursive call is last operation"],ans:3,topic:"Recursion"},
+      {q:"What is a coroutine?",opts:["Generator","Lambda","Function that can pause and resume","Decorator"],ans:2,topic:"Async"},
+      {q:"What does async def do?",opts:["Imports async","Defines asynchronous function","Makes function faster","Creates generator"],ans:1,topic:"Async"},
+      {q:"What does await do?",opts:["Sleeps thread","Times out","Waits for async operation","Pauses forever"],ans:2,topic:"Async"},
+      {q:"What is asyncio?",opts:["Networking library","Multiprocessing","Threading library","Library for async I/O"],ans:3,topic:"Async"},
+      {q:"What is a future in asyncio?",opts:["Process","Thread","Object representing pending result","Past result"],ans:2,topic:"Async"},
+      {q:"What is Python's GIL?",opts:["Graphics Interface Layer","Lock preventing true multi-threading","General Index List","Global Input Lock"],ans:1,topic:"Internals"},
+      {q:"How does Python manage memory?",opts:["Reference counting + garbage collection","Heap only","Stack only","Manual allocation"],ans:0,topic:"Memory"},
+      {q:"What is reference counting?",opts:["Count function calls","Track how many refs point to object","Count variables","Count modules"],ans:1,topic:"Memory"},
+      {q:"What triggers garbage collection?",opts:["Every function call","Every print","Circular references with count 0","Every import"],ans:2,topic:"Memory"},
+      {q:"What is the difference between deepcopy and copy?",opts:["Copy is deeper","Same thing","Deepcopy copies nested objects","Deepcopy is faster"],ans:2,topic:"Memory"},
+      {q:"What is pickling in Python?",opts:["Selecting randomly","Sorting","Serializing object to bytes","Drawing"],ans:2,topic:"Serialization"},
+      {q:"What does pickle.dumps() do?",opts:["Deletes object","Serializes object to bytes","Deserializes","Prints object"],ans:1,topic:"Serialization"},
+      {q:"What is JSON serialization?",opts:["Validating JSON","Importing JSON","Converting Python obj to JSON string","Creating JSON file"],ans:2,topic:"Serialization"},
+      {q:"What is a thread in Python?",opts:["Concurrent execution unit","Coroutine","Process","Generator"],ans:0,topic:"Concurrency"},
+      {q:"What does threading.Thread do?",opts:["Syncs threads","Pauses thread","Kills thread","Creates a new thread"],ans:3,topic:"Concurrency"},
+      {q:"What is a race condition?",opts:["Uncontrolled access to shared resource","Fast execution","Thread priority","CPU scheduling"],ans:0,topic:"Concurrency"},
+      {q:"What is a mutex?",opts:["Process manager","Async lock","Memory block","Mutual exclusion for shared data"],ans:3,topic:"Concurrency"},
+      {q:"What does multiprocessing module do?",opts:["True parallel execution using processes","Handles I/O","Manages async","Creates threads"],ans:0,topic:"Concurrency"},
+      {q:"What is IPC?",opts:["Input Processing Control","Internal Python compiler","Integer Processing Core","Inter-process communication"],ans:3,topic:"Concurrency"},
+      {q:"What is a daemon thread?",opts:["Background thread killed when main exits","High priority thread","Main thread","User thread"],ans:0,topic:"Concurrency"},
+      {q:"What is __slots__?",opts:["Defines methods","Restricts attributes to save memory","Creates properties","Manages threads"],ans:1,topic:"Memory"},
+      {q:"What is __weakref__?",opts:["Strong reference","Weak reference not preventing garbage collection","Thread reference","Module reference"],ans:1,topic:"Memory"},
+      {q:"What is sys.getsizeof()?",opts:["Gets list size","Gets system size","Returns object size in bytes","Gets file size"],ans:2,topic:"Memory"},
+      {q:"What is a memory leak in Python?",opts:["Slow memory","Extra memory","Missing memory","Object kept alive unintentionally"],ans:3,topic:"Memory"},
+      {q:"What is the dis module?",opts:["Disk management","Disassembles Python bytecode","Displays info","Distance calc"],ans:1,topic:"Internals"},
+      {q:"What is a metaclass?",opts:["Class of a class","Abstract class","Parent class","Base class"],ans:0,topic:"Advanced OOP"},
+      {q:"What does type() do when called with 3 args?",opts:["Lists types","Checks type","Converts type","Creates a new class dynamically"],ans:3,topic:"Advanced OOP"},
+      {q:"What is __new__ vs __init__?",opts:["__new__ creates, __init__ initializes","Same purpose","__new__ initializes","__init__ creates"],ans:0,topic:"Advanced OOP"},
+      {q:"What is a descriptor?",opts:["Object defining __get__,__set__,__delete__","Function arg","Class variable","Module attribute"],ans:0,topic:"Advanced OOP"},
+      {q:"What is @property?",opts:["Caches result","Creates setter","Creates getter accessed like attribute","Makes public"],ans:2,topic:"Advanced OOP"},
+      {q:"What is MRO?",opts:["Memory Reference Order","Method Resolution Order for inheritance","Module Resolution","Method Registry Order"],ans:1,topic:"Advanced OOP"},
+      {q:"What algorithm does Python use for MRO?",opts:["Topological sort","C3 linearization","DFS","BFS"],ans:1,topic:"Advanced OOP"},
+      {q:"What is __mro__ attribute?",opts:["Method order dict","Tuple of class hierarchy","List of methods","Tuple of args"],ans:1,topic:"Advanced OOP"},
+      {q:"What is operator overloading?",opts:["Defining custom behavior for operators","Overusing operators","Importing operators","Removing operators"],ans:0,topic:"Advanced OOP"},
+      {q:"What does __add__ enable?",opts:["+ operator on custom objects","Concatenation only","Addition only","Number addition"],ans:0,topic:"Advanced OOP"},
+      {q:"What is __call__?",opts:["Makes object callable like function","Imports class","Creates instance","Calls method"],ans:0,topic:"Advanced OOP"},
+      {q:"What is __iter__ and __next__?",opts:["File iteration","Define custom iterator behavior","Generator control","Loop control"],ans:1,topic:"Advanced OOP"},
+      {q:"What is __getitem__?",opts:["Enables indexing with []","Gets attribute","Imports item","Gets item from list"],ans:0,topic:"Advanced OOP"},
+      {q:"What is __contains__?",opts:["Import check","Contains check","Type check","Enables 'in' operator"],ans:3,topic:"Advanced OOP"},
+      {q:"What is __del__?",opts:["Removes method","Deletes class","Called when object is destroyed","Deletes attribute"],ans:2,topic:"Advanced OOP"},
+      {q:"What is a class decorator?",opts:["Method decorator","Variable decorator","Module decorator","Function taking and returning class"],ans:3,topic:"Advanced OOP"},
+      {q:"What does __subclasshook__ do?",opts:["Adds subclass","Customizes isinstance/issubclass checks","Removes subclass","Lists subclasses"],ans:1,topic:"Advanced OOP"},
+      {q:"What is ABC?",opts:["Abstract Boolean Class","Abstract Base Class — defines interface","Any Base Class","Array Base Container"],ans:1,topic:"Advanced OOP"},
+      {q:"What is @abstractmethod?",opts:["Forces subclasses to implement method","Hides method","Makes method fast","Removes method"],ans:0,topic:"Advanced OOP"},
+      {q:"What is Protocol in Python 3.8+?",opts:["Mixin class","Interface class","Structural subtyping — duck typing formalized","Abstract class"],ans:2,topic:"Advanced OOP"},
+      {q:"What is a context variable in Python 3.7+?",opts:["Thread local","Process variable","Global variable","Variable with different values per async context"],ans:3,topic:"Async"},
+      {q:"What is asyncio.gather()?",opts:["Runs multiple coroutines concurrently","Creates thread","Imports async","Gathers data"],ans:0,topic:"Async"},
+      {q:"What is asyncio.Queue?",opts:["Normal queue","Process queue","Thread queue","Async-safe FIFO queue"],ans:3,topic:"Async"},
+      {q:"What does asyncio.sleep(n) do?",opts:["Pauses thread","Sleeps process","Kills coroutine","Pauses coroutine for n seconds"],ans:3,topic:"Async"},
+      {q:"What is an event loop?",opts:["Core of asyncio scheduling coroutines","For loop","While loop","Thread manager"],ans:0,topic:"Async"},
+      {q:"What is aiohttp?",opts:["Async HTTP client/server library","Sync HTTP","File I/O library","Database library"],ans:0,topic:"Async"},
+      {q:"What is typing module?",opts:["Type checking","Type conversion","Provides type hints","Type casting"],ans:2,topic:"Type Hints"},
+      {q:"What is Optional[int]?",opts:["Nullable int","int or None","Optional integer class","Any int"],ans:1,topic:"Type Hints"},
+      {q:"What is Union[int, str]?",opts:["int or str","int and str","str from int","int to str"],ans:0,topic:"Type Hints"},
+      {q:"What is List[int]?",opts:["List of integers","Array of int","Typed list","Integer list class"],ans:0,topic:"Type Hints"},
+      {q:"What is Dict[str, int]?",opts:["Mixed dict","String dict","Integer dict","Dict with str keys and int values"],ans:3,topic:"Type Hints"},
+      {q:"What is Callable in typing?",opts:["Type hint for functions","Function class","Method type","Callable class"],ans:0,topic:"Type Hints"},
+      {q:"What does dataclass decorator do?",opts:["Creates database","Auto-generates __init__ and other methods","Creates dict","Creates list"],ans:1,topic:"Advanced"},
+      {q:"What is NamedTuple?",opts:["Named set","Named dict","Tuple with named fields","Named list"],ans:2,topic:"Advanced"},
+      {q:"What is TypeVar?",opts:["Type variable","Placeholder for generic type in typing","Variable type","Type cast"],ans:1,topic:"Type Hints"},
+      {q:"What is @cached_property?",opts:["Cached variable","Cached import","Property computed once and cached","Cached method"],ans:2,topic:"Optimization"},
+      {q:"What is __class_getitem__?",opts:["Enables Class[T] generic syntax","Returns item","Gets class","Creates subclass"],ans:0,topic:"Advanced OOP"},
+      {q:"What is ParamSpec in Python 3.10?",opts:["Parameter specification","Function params","Captures parameter types of callable","Callable params"],ans:2,topic:"Type Hints"},
+      {q:"What is match statement in Python 3.10?",opts:["If-else chain","Structural pattern matching","Switch statement","Loop control"],ans:1,topic:"Syntax"},
+      {q:"What is the walrus operator :=?",opts:["Dict operator","Assignment expression — assigns and returns","Walrus math","Slice operator"],ans:1,topic:"Syntax"},
+      {q:"What is CPython?",opts:["Default Python implementation in C","Python compiler","Python for C","C extension"],ans:0,topic:"Internals"},
+      {q:"What is PyPy?",opts:["Python for Py","JIT-compiled Python implementation","Python preprocessor","Python package"],ans:1,topic:"Internals"},
+      {q:"What is bytecode in Python?",opts:["Source code","Machine code","Intermediate .pyc code run by VM","Binary code"],ans:2,topic:"Internals"},
+      {q:"What is the Python VM?",opts:["Compiles code","Executes bytecode","Runs machine code","Links code"],ans:1,topic:"Internals"},
+      {q:"What is a .pyc file?",opts:["Compiled bytecode cache","Python class file","Python config","Python package"],ans:0,topic:"Internals"},
+      {q:"What is __pycache__?",opts:["Python cache","Directory storing compiled bytecode","Import cache","Cache directory"],ans:1,topic:"Internals"},
+      {q:"What is sys.path?",opts:["Python installation path","Module path","System path","List of directories Python searches for modules"],ans:3,topic:"Internals"},
+      {q:"What is importlib?",opts:["Import manager","Import library","Import list","Module for programmatic imports"],ans:3,topic:"Modules"},
+      {q:"What is a namespace package?",opts:["Global package","Package without __init__.py","System package","Named package"],ans:1,topic:"Modules"},
+      {q:"What is __all__ in a module?",opts:["All functions","All variables","All imports","Defines public API for from x import *"],ans:3,topic:"Modules"},
+      {q:"What is a C extension in Python?",opts:["C class","C code file","Module written in C for performance","C import"],ans:2,topic:"Internals"},
+      {q:"What is ctypes?",opts:["Library for calling C functions from Python","C class module","C types module","C file module"],ans:0,topic:"Internals"},
+      {q:"What is Cython?",opts:["Compiles Python-like code to C","Python compiler","C to Python","Python subset"],ans:0,topic:"Performance"},
+      {q:"What is profiling in Python?",opts:["Testing","Formatting","Debugging","Measuring code performance"],ans:3,topic:"Optimization"},
+      {q:"What does cProfile do?",opts:["Creates profile","Formats code","Checks C code","Profiles function call statistics"],ans:3,topic:"Optimization"},
+      {q:"What is line_profiler?",opts:["C profiler","Thread profiler","Module profiler","Profiles code line by line"],ans:3,topic:"Optimization"},
+      {q:"What is memory_profiler?",opts:["CPU profiler","Thread profiler","I/O profiler","Tracks memory usage per line"],ans:3,topic:"Optimization"},
+      {q:"What is numba?",opts:["Number library","Python compiler","Numpy backend","JIT compiler for numerical Python code"],ans:3,topic:"Performance"},
+      {q:"What is numpy vectorization?",opts:["Array creation","Matrix math","Operations on whole arrays without loops","Numpy import"],ans:2,topic:"Performance"},
+      {q:"What is the difference between list and array (numpy)?",opts:["Same thing","Array is dynamic","List is faster","Numpy array is typed and faster for math"],ans:3,topic:"Performance"},
     ],
     intermediate:[
-      {q:"What is the difference between '==' and 'is' in Python?",opts:["No difference","== checks value, is checks identity","is checks value, == checks identity","Both check identity"],ans:1,topic:"OOP"},
-      {q:"What does *args allow in a function?",opts:["Keyword arguments only","Variable number of positional arguments","Fixed arguments","None"],ans:1,topic:"Functions"},
-      {q:"What is list comprehension?",opts:["Copying a list","Compact way to create lists","Sorting lists","None"],ans:1,topic:"Data Structures"},
-      {q:"What is a lambda function?",opts:["Named multi-line function","Anonymous single-expression function","Class method","None"],ans:1,topic:"Functions"},
-      {q:"What does 'self' represent in a class method?",opts:["Class name","Parent class","Current instance","Module"],ans:2,topic:"OOP"},
-      {q:"What is the output of: [x**2 for x in range(4)]?",opts:["[0,1,2,3]","[0,1,4,9]","[1,4,9,16]","Error"],ans:1,topic:"List Comprehension"},
-      {q:"What does 'with open()' ensure?",opts:["File is always deleted","File is properly closed","File is read-only","None"],ans:1,topic:"File Handling"},
-      {q:"What is the difference between deepcopy and shallow copy?",opts:["Same thing","Deepcopy copies nested objects fully","Shallow copy is slower","None"],ans:1,topic:"Memory"},
-      {q:"What does @staticmethod decorator do?",opts:["Binds method to instance","Method doesn't need self or cls","Makes method private","None"],ans:1,topic:"OOP"},
-      {q:"What is a generator in Python?",opts:["A list creator","Function that yields values lazily","Random number generator","None"],ans:1,topic:"Advanced"},
-      {q:"What does **kwargs allow?",opts:["Positional args","Variable keyword arguments as dict","Fixed keyword args","None"],ans:1,topic:"Functions"},
-      {q:"What is the purpose of __str__ method?",opts:["Deletes object","Returns string representation","Imports module","None"],ans:1,topic:"OOP"},
-      {q:"What is a tuple unpacking?",opts:["Breaking tuple into individual variables","Sorting tuple","Deleting tuple","None"],ans:0,topic:"Data Structures"},
-      {q:"What does set() guarantee about elements?",opts:["Ordered","No duplicates","Sorted","All strings"],ans:1,topic:"Data Structures"},
-      {q:"What is recursion?",opts:["Loop using for","Function calling itself","Class calling itself","None"],ans:1,topic:"Functions"},
-      {q:"What does map(func, list) return?",opts:["Modified list in-place","Iterator applying func to each element","Sorted list","None"],ans:1,topic:"Functional"},
-      {q:"What is difference between append() and extend()?",opts:["Same","append adds one item, extend adds iterable","extend adds one item, append adds iterable","None"],ans:1,topic:"Data Structures"},
-      {q:"What does 'pass' do in Python?",opts:["Exits function","Does nothing — placeholder","Continues loop","None"],ans:1,topic:"Syntax"},
-      {q:"What is method overriding?",opts:["Creating new method","Child class redefines parent method","Deleting parent method","None"],ans:1,topic:"OOP"},
-      {q:"What is the use of enumerate()?",opts:["Count list items","Iterate with index and value","Sort items","None"],ans:1,topic:"Iteration"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
     ],
     advanced:[
-      {q:"What is the GIL in Python?",opts:["Global Input Lock","Global Interpreter Lock — prevents true multithreading","Global Index List","None"],ans:1,topic:"Internals"},
-      {q:"What is a metaclass in Python?",opts:["Parent class","Class of a class","Abstract class","None"],ans:1,topic:"Advanced OOP"},
-      {q:"What does @property decorator do?",opts:["Makes variable public","Creates getter method accessed like attribute","Caches result","None"],ans:1,topic:"Advanced OOP"},
-      {q:"What is the difference between __new__ and __init__?",opts:["Same","__new__ creates instance, __init__ initializes it","__init__ creates, __new__ initializes","None"],ans:1,topic:"Advanced OOP"},
-      {q:"What is memoization?",opts:["Memory management","Caching function results to avoid recomputation","None","Garbage collection"],ans:1,topic:"Optimization"},
-      {q:"What are Python descriptors?",opts:["Variable descriptions","Objects defining __get__,__set__,__delete__ for attribute access","File metadata","None"],ans:1,topic:"Advanced OOP"},
-      {q:"What is asyncio used for?",opts:["Multithreading","Asynchronous/concurrent I/O without threading","Database queries","None"],ans:1,topic:"Async"},
-      {q:"What is the difference between @classmethod and @staticmethod?",opts:["Same","classmethod gets cls as first arg, staticmethod gets neither","staticmethod gets cls","None"],ans:1,topic:"OOP"},
-      {q:"What does yield from do?",opts:["Creates generator","Delegates to a sub-generator","Imports module","None"],ans:1,topic:"Generators"},
-      {q:"What is __slots__ used for?",opts:["Defining time slots","Restricts instance attributes to save memory","Defines class methods","None"],ans:1,topic:"Memory"},
-      {q:"What is the complexity of Python dict lookup?",opts:["O(n)","O(log n)","O(1) average","O(n²)"],ans:2,topic:"Complexity"},
-      {q:"What does functools.lru_cache do?",opts:["Sorts functions","Caches function return values (memoization)","Deletes cache","None"],ans:1,topic:"Optimization"},
-      {q:"What is a context manager?",opts:["Memory manager","Object managing setup/teardown with 'with' keyword","Thread manager","None"],ans:1,topic:"Advanced"},
-      {q:"What is duck typing?",opts:["Using ducks in code","If it behaves like a type, treat it as that type","Type checking","None"],ans:1,topic:"Python Philosophy"},
-      {q:"What is the difference between is and == for strings?",opts:["Always same","== compares value, is compares memory address","is compares value","None"],ans:1,topic:"Memory"},
-      {q:"What is __repr__ vs __str__?",opts:["Same","__repr__ for developers (unambiguous), __str__ for end users","__str__ for developers","None"],ans:1,topic:"OOP"},
-      {q:"What is Python's MRO (Method Resolution Order)?",opts:["Memory Reference Order","Order Python searches classes for methods (C3 linearization)","None","Module Resolution"],ans:1,topic:"Advanced OOP"},
-      {q:"What is a coroutine?",opts:["Error handler","Function that can pause and resume execution","Thread","None"],ans:1,topic:"Async"},
-      {q:"What does __call__ allow?",opts:["Calling a variable","Makes an object callable like a function","Imports module","None"],ans:1,topic:"Advanced OOP"},
-      {q:"What is the purpose of Abstract Base Classes (ABC)?",opts:["Speed optimization","Define interface that subclasses must implement","Memory management","None"],ans:1,topic:"Advanced OOP"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
     ],
   },
   c2:{
     basic:[
-      {q:"What is 'cout' used for in C++?",opts:["Input","Output to console","File operations","Memory"],ans:1,topic:"Basics"},
-      {q:"How do you end a C++ statement?",opts:[":",".",";","none"],ans:2,topic:"Basics"},
-      {q:"Which header is needed for cout?",opts:["stdio.h","stdlib.h","iostream","string.h"],ans:2,topic:"Basics"},
-      {q:"What does 'int' declare?",opts:["Float variable","Integer variable","Character","String"],ans:1,topic:"Data Types"},
-      {q:"How do you write a single-line comment in C++?",opts:["#","//","/* */","--"],ans:1,topic:"Basics"},
-      {q:"What is the correct way to declare a variable: int x = 5?",opts:["Yes, correct","int = x 5","5 = int x","x int = 5"],ans:0,topic:"Variables"},
-      {q:"What does 'cin' do?",opts:["Outputs to console","Takes input from user","Creates input","None"],ans:1,topic:"Input/Output"},
-      {q:"What is an array in C++?",opts:["Single variable","Collection of same-type elements","Key-value store","None"],ans:1,topic:"Arrays"},
-      {q:"How do you access 3rd element of array 'a'?",opts:["a[3]","a(3)","a[2]","a.3"],ans:2,topic:"Arrays"},
-      {q:"What is a for loop used for?",opts:["Decision making","Repeating code a number of times","Defining functions","None"],ans:1,topic:"Loops"},
-      {q:"What does 'break' do in a loop?",opts:["Skips iteration","Exits loop","Restarts","None"],ans:1,topic:"Loops"},
-      {q:"What is a function in C++?",opts:["A variable","Reusable block of code","Loop","None"],ans:1,topic:"Functions"},
+      {q:"What does 'cout' output in C++?",opts:["Text to console","Input from user","File content","Memory address"],ans:0,topic:"Basics"},
+      {q:"How to end a C++ statement?",opts:["Colon :","Comma ,","Semicolon ;","Period ."],ans:2,topic:"Basics"},
+      {q:"Which header is needed for cout?",opts:["stdlib.h","iostream","string.h","stdio.h"],ans:1,topic:"Basics"},
+      {q:"What does 'int' declare?",opts:["String","Character","Float variable","Integer variable"],ans:3,topic:"Data Types"},
+      {q:"How to write single-line comment in C++?",opts:["#","//","/* */","--"],ans:1,topic:"Basics"},
+      {q:"Which is correct variable declaration?",opts:["5 = int x;","x int = 5;","int = x 5;","int x = 5;"],ans:3,topic:"Variables"},
+      {q:"What does 'cin' do?",opts:["None","Outputs to console","Creates input","Takes input from user"],ans:3,topic:"I/O"},
+      {q:"What is an array?",opts:["Single variable","Tree","Key-value store","Collection of same-type elements"],ans:3,topic:"Arrays"},
+      {q:"How to access 3rd element of array 'a'?",opts:["a[2]","a[3]","a.3","a(3)"],ans:0,topic:"Arrays"},
+      {q:"What is a for loop used for?",opts:["None","Decision making","Repeating code set number of times","Defining functions"],ans:2,topic:"Loops"},
+      {q:"What does 'break' do in a loop?",opts:["None","Restarts","Skips iteration","Exits the loop"],ans:3,topic:"Loops"},
+      {q:"What is a function?",opts:["None","Loop","Variable","Reusable block of code"],ans:3,topic:"Functions"},
       {q:"What is 'return' used for?",opts:["Prints value","Sends value back from function","Imports","None"],ans:1,topic:"Functions"},
-      {q:"Which of these is correct to declare a string?",opts:['char s="hi"','string s="hi"','String s="hi"','str s="hi"'],ans:1,topic:"Strings"},
-      {q:"What does sizeof() return?",opts:["Length of string","Size in bytes","Array length","None"],ans:1,topic:"Memory"},
-      {q:"What is a boolean in C++?",opts:["Number","True/False value","Character","None"],ans:1,topic:"Data Types"},
-      {q:"How do you write if-else in C++?",opts:["if x > 0:","if(x>0){} else{}","if x>0 then","None"],ans:1,topic:"Conditionals"},
-      {q:"What is the index of last element in int a[5]?",opts:["5","4","3","6"],ans:1,topic:"Arrays"},
-      {q:"What does 'void' mean as return type?",opts:["Returns zero","Function returns nothing","Returns string","None"],ans:1,topic:"Functions"},
-      {q:"What is a nested loop?",opts:["Loop with break","Loop inside another loop","Recursive loop","None"],ans:1,topic:"Loops"},
+      {q:"How to declare a string?",opts:["str s = 'hi';","String s = 'hi';","string s = 'hi';","char s = 'hi';"],ans:2,topic:"Strings"},
+      {q:"What does sizeof() return?",opts:["Size in bytes","Array length","Length of string","None"],ans:0,topic:"Memory"},
+      {q:"What is a boolean?",opts:["None","True/False value","Number","Character"],ans:1,topic:"Data Types"},
+      {q:"How to write if-else in C++?",opts:["None","if x>0 then","if x > 0:","if(x>0){} else{}"],ans:3,topic:"Conditionals"},
+      {q:"Last valid index in int a[5]?",opts:["4","6","3","5"],ans:0,topic:"Arrays"},
+      {q:"What does 'void' return type mean?",opts:["None","Returns zero","Function returns nothing","Returns string"],ans:2,topic:"Functions"},
+      {q:"What is a nested loop?",opts:["None","Loop with break","Loop inside another loop","Recursive loop"],ans:2,topic:"Loops"},
+      {q:"What is 'while' loop?",opts:["Runs while condition is true","Runs once","Runs forever","Runs fixed times"],ans:0,topic:"Loops"},
+      {q:"What is a do-while loop?",opts:["Runs at least once, checks after","Checks first","Never runs","Runs twice"],ans:0,topic:"Loops"},
+      {q:"How to declare a constant in C++?",opts:["constant int x = 5;","#define only","final int x = 5;","const int x = 5;"],ans:3,topic:"Variables"},
+      {q:"What is the scope of local variable?",opts:["In class only","Everywhere","In file only","Inside its block only"],ans:3,topic:"Variables"},
+      {q:"What does '&&' mean?",opts:["Bitwise AND","Logical AND","Address of","None"],ans:1,topic:"Operators"},
+      {q:"What does '||' mean?",opts:["Logical OR","Bitwise OR","Pipe","None"],ans:0,topic:"Operators"},
+      {q:"What is a char data type?",opts:["String","Integer","Single character","Boolean"],ans:2,topic:"Data Types"},
+      {q:"What does 'float' store?",opts:["Booleans","Integers","Decimal numbers","Characters"],ans:2,topic:"Data Types"},
+      {q:"What is a double?",opts:["Double-precision decimal","Two floats","None","Double integer"],ans:0,topic:"Data Types"},
+      {q:"How to read integer input with cin?",opts:["cin >> x;","cin << x;","cin(x);","read(x);"],ans:0,topic:"I/O"},
+      {q:"How to print newline in cout?",opts:["cout << endl;","cout << \n;","cout << newline;","print();"],ans:0,topic:"I/O"},
+      {q:"What is a ternary operator?",opts:["a ? b : c","if else shorthand","None","Both a and b"],ans:0,topic:"Operators"},
+      {q:"What does % operator do?",opts:["Returns remainder","Modifies","Divides","Multiplies"],ans:0,topic:"Operators"},
+      {q:"What is += operator?",opts:["Concatenates","Compares","Adds and assigns","Adds only"],ans:2,topic:"Operators"},
+      {q:"What does 'continue' do?",opts:["Exits loop","None","Skips to next iteration","Restarts function"],ans:2,topic:"Loops"},
+      {q:"How to swap two variables a and b?",opts:["swap=a+b;","a<->b;","temp=a; a=b; b=temp;","a=b; b=a;"],ans:2,topic:"Basics"},
+      {q:"What is #include?",opts:["Preprocessor directive to include file","Comment","Variable","Function call"],ans:0,topic:"Preprocessor"},
+      {q:"What is #define?",opts:["Defines function","Defines variable","None","Defines macro constant"],ans:3,topic:"Preprocessor"},
+      {q:"What is 'main' function?",opts:["Main loop","Entry point of C++ program","Main variable","Main class"],ans:1,topic:"Basics"},
+      {q:"What does 'return 0' in main() mean?",opts:["Error occurred","None","Program exited successfully","Restart program"],ans:2,topic:"Basics"},
+      {q:"What is a pointer?",opts:["Variable storing value","None","Variable storing memory address","Array element"],ans:2,topic:"Pointers"},
+      {q:"What does * do in pointer declaration?",opts:["Dereferences","Declares pointer variable","None","Multiplies"],ans:1,topic:"Pointers"},
+      {q:"What does & operator do with variable?",opts:["Returns value","Copies it","Returns its memory address","None"],ans:2,topic:"Pointers"},
+      {q:"What is dereferencing a pointer?",opts:["Accessing value at pointer's address","None","Getting address","Copying pointer"],ans:0,topic:"Pointers"},
+      {q:"What is NULL pointer?",opts:["Empty array","Pointer pointing to nothing","Zero pointer","None"],ans:1,topic:"Pointers"},
+      {q:"What is pointer arithmetic?",opts:["None","None","Math with pointers","Moving pointer by element sizes"],ans:3,topic:"Pointers"},
+      {q:"What is array-pointer relationship?",opts:["Arrays are classes","Arrays are objects","None","Array name is pointer to first element"],ans:3,topic:"Arrays"},
+      {q:"How to dynamically allocate int?",opts:["malloc(int);","alloc int;","new int;","create int;"],ans:2,topic:"Memory"},
+      {q:"How to free dynamic memory?",opts:["remove ptr;","clear ptr;","delete ptr;","free(ptr);"],ans:2,topic:"Memory"},
+      {q:"What is memory leak?",opts:["Memory error","Stack overflow","None","Allocated memory not freed"],ans:3,topic:"Memory"},
+      {q:"What is stack memory?",opts:["Dynamic memory","Auto-managed local variable memory","Heap","None"],ans:1,topic:"Memory"},
+      {q:"What is heap memory?",opts:["Dynamic allocation via new/malloc","Stack","Auto memory","None"],ans:0,topic:"Memory"},
+      {q:"What is a reference variable?",opts:["Alias for another variable","Copy of variable","None","Pointer"],ans:0,topic:"References"},
+      {q:"How to pass variable by reference?",opts:["void f(int x)","void f(int &x)","void f(&int x)","void f(int *x)"],ans:1,topic:"Functions"},
+      {q:"What is pass by value?",opts:["Function gets original","Pointer passing","None","Function gets copy of argument"],ans:3,topic:"Functions"},
+      {q:"What is an array of pointers?",opts:["Pointer array class","Array where each element is pointer","None","2D array"],ans:1,topic:"Arrays"},
+      {q:"How to declare pointer to int?",opts:["int &p;","pointer int p;","int* p;","int p*;"],ans:2,topic:"Pointers"},
+      {q:"What is void pointer?",opts:["Null pointer","Empty pointer","None","Pointer with no specific type"],ans:3,topic:"Pointers"},
+      {q:"What is pointer to pointer?",opts:["Double pointer **","Reference","Single pointer","None"],ans:0,topic:"Pointers"},
+      {q:"What is the output of: int a=5; int* p=&a; cout<<*p;?",opts:["Address","0","5","Error"],ans:2,topic:"Pointers"},
+      {q:"What is a class in C++?",opts:["Blueprint for objects","Function group","Module","Variable"],ans:0,topic:"OOP"},
+      {q:"How to create object of class Car?",opts:["new Car c;","Car.create();","Car c;","object Car c;"],ans:2,topic:"OOP"},
+      {q:"What is a constructor?",opts:["Destructor","Auto-called method to initialize object","None","Copy function"],ans:1,topic:"OOP"},
+      {q:"What is a destructor?",opts:["Constructor","Copy constructor","Auto-called when object is destroyed","None"],ans:2,topic:"OOP"},
+      {q:"What is encapsulation?",opts:["Creating objects","Hiding data inside class","Importing","Inheriting"],ans:1,topic:"OOP"},
+      {q:"What is inheritance?",opts:["Copying code","Multiple classes","None","Child class reusing parent properties"],ans:3,topic:"OOP"},
+      {q:"What is polymorphism?",opts:["Same interface, different behavior","Multiple inheritance","None","Many methods"],ans:0,topic:"OOP"},
+      {q:"What is 'public' access?",opts:["Derived only","Class only","Accessible from anywhere","File only"],ans:2,topic:"OOP"},
+      {q:"What is 'private' access?",opts:["Accessible only within class","Everywhere","File only","Derived classes"],ans:0,topic:"OOP"},
+      {q:"What is 'protected' access?",opts:["Accessible in class and derived classes","Everywhere","File only","Class only"],ans:0,topic:"OOP"},
+      {q:"What is method overriding?",opts:["Creating new method","None","Child class redefines parent method","Copying method"],ans:2,topic:"OOP"},
+      {q:"What is function overloading?",opts:["Same name different parameters","Same everything","Different names","None"],ans:0,topic:"Functions"},
+      {q:"What is scope resolution operator?",opts:["->","**","::",".."],ans:2,topic:"Operators"},
+      {q:"What does 'this' pointer refer to?",opts:["None","Current object","Global variable","Parent class"],ans:1,topic:"Pointers"},
+      {q:"What is a virtual function?",opts:["Compile-time function","Enables runtime polymorphism","None","Hidden function"],ans:1,topic:"OOP"},
+      {q:"What is abstract class?",opts:["Has at least one pure virtual function","Template class","None","Empty class"],ans:0,topic:"OOP"},
+      {q:"What is pure virtual function?",opts:["None","Empty function","virtual void f() = 0","Virtual only"],ans:2,topic:"OOP"},
+      {q:"What is an interface in C++?",opts:["Header file","Keyword interface","Abstract class with only pure virtuals","None"],ans:2,topic:"OOP"},
+      {q:"What does 'friend' keyword do?",opts:["Grants private access to outside function/class","None","Makes public","Hides class"],ans:0,topic:"OOP"},
+      {q:"What is operator overloading?",opts:["Using operators","Custom behavior for operators on objects","None","Hiding operators"],ans:1,topic:"OOP"},
+      {q:"What is STL?",opts:["Standard Template Library","String Template Library","None","Standard Type Library"],ans:0,topic:"STL"},
+      {q:"What is a vector?",opts:["Dynamic resizable array","Linked list","Fixed array","None"],ans:0,topic:"STL"},
+      {q:"How to add element to vector?",opts:["v.append(x);","v.insert(x);","v.add(x);","v.push_back(x);"],ans:3,topic:"STL"},
+      {q:"What is a map in STL?",opts:["Sorted key-value pairs","None","Unordered map","Array"],ans:0,topic:"STL"},
+      {q:"What is unordered_map?",opts:["Array map","None","Sorted map","Hash map for O(1) lookup"],ans:3,topic:"STL"},
+      {q:"What is a set?",opts:["Array","Sorted unique elements","Unordered set","None"],ans:1,topic:"STL"},
+      {q:"What is a stack?",opts:["LIFO container","None","Sorted container","FIFO container"],ans:0,topic:"STL"},
+      {q:"What is a queue?",opts:["FIFO container","LIFO container","Sorted container","None"],ans:0,topic:"STL"},
+      {q:"What is a priority_queue?",opts:["FIFO","Random order","None","Highest priority element served first"],ans:3,topic:"STL"},
+      {q:"What is a list in STL?",opts:["Doubly linked list","Vector","None","Array"],ans:0,topic:"STL"},
+      {q:"What is a deque?",opts:["Single-ended queue","Stack","Double-ended queue","None"],ans:2,topic:"STL"},
+      {q:"What is an iterator?",opts:["None","Object to traverse container elements","Index","Pointer to element"],ans:1,topic:"STL"},
+      {q:"What does begin() return?",opts:["First element","Iterator to first element","None","Index 0"],ans:1,topic:"STL"},
+      {q:"What does end() return?",opts:["Last element","Last index","Iterator past last element","None"],ans:2,topic:"STL"},
+      {q:"What is std::sort()?",opts:["Bubble sort","None","Stable sort","Sorts range using intro sort"],ans:3,topic:"Algorithms"},
+      {q:"What is std::find()?",opts:["Returns iterator to found element","Returns bool","None","Returns index"],ans:0,topic:"Algorithms"},
+      {q:"What is std::count()?",opts:["Counts occurrences in range","None","Counts elements","Sum of range"],ans:0,topic:"Algorithms"},
+      {q:"What is std::accumulate()?",opts:["Finds max","Counts elements","Computes sum/accumulation","None"],ans:2,topic:"Algorithms"},
+      {q:"What is std::reverse()?",opts:["Sorts reversed","Reverses range in-place","None","Returns reversed copy"],ans:1,topic:"Algorithms"},
+      {q:"What is std::unique()?",opts:["Unique elements","None","Removes consecutive duplicates","Removes all duplicates"],ans:2,topic:"Algorithms"},
+      {q:"What is a template in C++?",opts:["Generic programming for any type","File template","HTML template","None"],ans:0,topic:"Templates"},
+      {q:"How to declare function template?",opts:["type T","generic T","template T","template<typename T>"],ans:3,topic:"Templates"},
+      {q:"What is template specialization?",opts:["Template error","Generic template","Custom implementation for specific type","None"],ans:2,topic:"Templates"},
+      {q:"What is a namespace?",opts:["Named scope to avoid name conflicts","Module","Name prefix","Package"],ans:0,topic:"Namespaces"},
+      {q:"What is std namespace?",opts:["Standard library namespace","System define","Standard function","None"],ans:0,topic:"Namespaces"},
+      {q:"How to use std without prefix?",opts:["use std;","using namespace std;","#include std","import std;"],ans:1,topic:"Namespaces"},
+      {q:"What is a header file?",opts:["Contains data","Contains code","Contains declarations for functions/classes","Contains config"],ans:2,topic:"Files"},
+      {q:"What is a .cpp file?",opts:["Config file","Header file","Contains declarations","Contains implementation/definitions"],ans:3,topic:"Files"},
+      {q:"What is compilation?",opts:["Linking code","Converting source code to machine code","Running code","Parsing code"],ans:1,topic:"Compilation"},
+      {q:"What is linking?",opts:["Compiling","Running","Combining object files into executable","Debugging"],ans:2,topic:"Compilation"},
+      {q:"What is a macro?",opts:["Class","Function","Text substitution via #define","Variable"],ans:2,topic:"Preprocessor"},
+      {q:"What is inline function?",opts:["None","Always inlined","Static function","Suggests compiler to expand in-place"],ans:3,topic:"Functions"},
+      {q:"What is static variable?",opts:["Const variable","None","Global variable","Retains value between function calls"],ans:3,topic:"Variables"},
+      {q:"What is static member function?",opts:["Member method","Called on class not instance","Global function","None"],ans:1,topic:"OOP"},
+      {q:"What is const member function?",opts:["None","Const class","Returns const","Doesn't modify object state"],ans:3,topic:"OOP"},
+      {q:"What is explicit constructor?",opts:["Prevents implicit type conversion","Fast constructor","None","Explicit class"],ans:0,topic:"OOP"},
+      {q:"What is a copy constructor?",opts:["None","Move constructor","Default constructor","Creates object as copy of another"],ans:3,topic:"OOP"},
+      {q:"What is move constructor?",opts:["Transfers resources from temporary","Copy constructor","None","Default constructor"],ans:0,topic:"OOP"},
+      {q:"What is RAII?",opts:["Random Access Init","None","Resource Array Init","Resource lifecycle tied to object lifetime"],ans:3,topic:"Memory"},
+      {q:"What is a smart pointer?",opts:["Automatically manages memory","None","Pointer to pointer","Fast pointer"],ans:0,topic:"Memory"},
+      {q:"What does 'cout' output in C++?",opts:["Text to console","Input from user","File content","Memory address"],ans:0,topic:"Basics"},
+      {q:"How to end a C++ statement?",opts:["Colon :","Comma ,","Semicolon ;","Period ."],ans:2,topic:"Basics"},
+      {q:"Which header is needed for cout?",opts:["stdlib.h","iostream","string.h","stdio.h"],ans:1,topic:"Basics"},
+      {q:"What does 'int' declare?",opts:["String","Character","Float variable","Integer variable"],ans:3,topic:"Data Types"},
+      {q:"How to write single-line comment in C++?",opts:["#","//","/* */","--"],ans:1,topic:"Basics"},
+      {q:"Which is correct variable declaration?",opts:["5 = int x;","x int = 5;","int = x 5;","int x = 5;"],ans:3,topic:"Variables"},
+      {q:"What does 'cin' do?",opts:["None","Outputs to console","Creates input","Takes input from user"],ans:3,topic:"I/O"},
+      {q:"What is an array?",opts:["Single variable","Tree","Key-value store","Collection of same-type elements"],ans:3,topic:"Arrays"},
+      {q:"How to access 3rd element of array 'a'?",opts:["a[2]","a[3]","a.3","a(3)"],ans:0,topic:"Arrays"},
+      {q:"What is a for loop used for?",opts:["None","Decision making","Repeating code set number of times","Defining functions"],ans:2,topic:"Loops"},
+      {q:"What does 'break' do in a loop?",opts:["None","Restarts","Skips iteration","Exits the loop"],ans:3,topic:"Loops"},
+      {q:"What is a function?",opts:["None","Loop","Variable","Reusable block of code"],ans:3,topic:"Functions"},
+      {q:"What is 'return' used for?",opts:["Prints value","Sends value back from function","Imports","None"],ans:1,topic:"Functions"},
+      {q:"How to declare a string?",opts:["str s = 'hi';","String s = 'hi';","string s = 'hi';","char s = 'hi';"],ans:2,topic:"Strings"},
+      {q:"What does sizeof() return?",opts:["Size in bytes","Array length","Length of string","None"],ans:0,topic:"Memory"},
+      {q:"What is a boolean?",opts:["None","True/False value","Number","Character"],ans:1,topic:"Data Types"},
+      {q:"How to write if-else in C++?",opts:["None","if x>0 then","if x > 0:","if(x>0){} else{}"],ans:3,topic:"Conditionals"},
+      {q:"Last valid index in int a[5]?",opts:["4","6","3","5"],ans:0,topic:"Arrays"},
+      {q:"What does 'void' return type mean?",opts:["None","Returns zero","Function returns nothing","Returns string"],ans:2,topic:"Functions"},
+      {q:"What is a nested loop?",opts:["None","Loop with break","Loop inside another loop","Recursive loop"],ans:2,topic:"Loops"},
+      {q:"What is 'while' loop?",opts:["Runs while condition is true","Runs once","Runs forever","Runs fixed times"],ans:0,topic:"Loops"},
+      {q:"What is a do-while loop?",opts:["Runs at least once, checks after","Checks first","Never runs","Runs twice"],ans:0,topic:"Loops"},
+      {q:"How to declare a constant in C++?",opts:["constant int x = 5;","#define only","final int x = 5;","const int x = 5;"],ans:3,topic:"Variables"},
+      {q:"What is the scope of local variable?",opts:["In class only","Everywhere","In file only","Inside its block only"],ans:3,topic:"Variables"},
+      {q:"What does '&&' mean?",opts:["Bitwise AND","Logical AND","Address of","None"],ans:1,topic:"Operators"},
+      {q:"What does '||' mean?",opts:["Logical OR","Bitwise OR","Pipe","None"],ans:0,topic:"Operators"},
+      {q:"What is a char data type?",opts:["String","Integer","Single character","Boolean"],ans:2,topic:"Data Types"},
+      {q:"What does 'float' store?",opts:["Booleans","Integers","Decimal numbers","Characters"],ans:2,topic:"Data Types"},
+      {q:"What is a double?",opts:["Double-precision decimal","Two floats","None","Double integer"],ans:0,topic:"Data Types"},
+      {q:"How to read integer input with cin?",opts:["cin >> x;","cin << x;","cin(x);","read(x);"],ans:0,topic:"I/O"},
+      {q:"How to print newline in cout?",opts:["cout << endl;","cout << \n;","cout << newline;","print();"],ans:0,topic:"I/O"},
+      {q:"What is a ternary operator?",opts:["a ? b : c","if else shorthand","None","Both a and b"],ans:0,topic:"Operators"},
+      {q:"What does % operator do?",opts:["Returns remainder","Modifies","Divides","Multiplies"],ans:0,topic:"Operators"},
+      {q:"What is += operator?",opts:["Concatenates","Compares","Adds and assigns","Adds only"],ans:2,topic:"Operators"},
+      {q:"What does 'continue' do?",opts:["Exits loop","None","Skips to next iteration","Restarts function"],ans:2,topic:"Loops"},
+      {q:"How to swap two variables a and b?",opts:["swap=a+b;","a<->b;","temp=a; a=b; b=temp;","a=b; b=a;"],ans:2,topic:"Basics"},
+      {q:"What is #include?",opts:["Preprocessor directive to include file","Comment","Variable","Function call"],ans:0,topic:"Preprocessor"},
+      {q:"What is #define?",opts:["Defines function","Defines variable","None","Defines macro constant"],ans:3,topic:"Preprocessor"},
+      {q:"What is 'main' function?",opts:["Main loop","Entry point of C++ program","Main variable","Main class"],ans:1,topic:"Basics"},
+      {q:"What does 'return 0' in main() mean?",opts:["Error occurred","None","Program exited successfully","Restart program"],ans:2,topic:"Basics"},
+      {q:"What is a pointer?",opts:["Variable storing value","None","Variable storing memory address","Array element"],ans:2,topic:"Pointers"},
+      {q:"What does * do in pointer declaration?",opts:["Dereferences","Declares pointer variable","None","Multiplies"],ans:1,topic:"Pointers"},
+      {q:"What does & operator do with variable?",opts:["Returns value","Copies it","Returns its memory address","None"],ans:2,topic:"Pointers"},
+      {q:"What is dereferencing a pointer?",opts:["Accessing value at pointer's address","None","Getting address","Copying pointer"],ans:0,topic:"Pointers"},
+      {q:"What is NULL pointer?",opts:["Empty array","Pointer pointing to nothing","Zero pointer","None"],ans:1,topic:"Pointers"},
+      {q:"What is pointer arithmetic?",opts:["None","None","Math with pointers","Moving pointer by element sizes"],ans:3,topic:"Pointers"},
+      {q:"What is array-pointer relationship?",opts:["Arrays are classes","Arrays are objects","None","Array name is pointer to first element"],ans:3,topic:"Arrays"},
+      {q:"How to dynamically allocate int?",opts:["malloc(int);","alloc int;","new int;","create int;"],ans:2,topic:"Memory"},
+      {q:"How to free dynamic memory?",opts:["remove ptr;","clear ptr;","delete ptr;","free(ptr);"],ans:2,topic:"Memory"},
+      {q:"What is memory leak?",opts:["Memory error","Stack overflow","None","Allocated memory not freed"],ans:3,topic:"Memory"},
+      {q:"What is stack memory?",opts:["Dynamic memory","Auto-managed local variable memory","Heap","None"],ans:1,topic:"Memory"},
+      {q:"What is heap memory?",opts:["Dynamic allocation via new/malloc","Stack","Auto memory","None"],ans:0,topic:"Memory"},
+      {q:"What is a reference variable?",opts:["Alias for another variable","Copy of variable","None","Pointer"],ans:0,topic:"References"},
+      {q:"How to pass variable by reference?",opts:["void f(int x)","void f(int &x)","void f(&int x)","void f(int *x)"],ans:1,topic:"Functions"},
+      {q:"What is pass by value?",opts:["Function gets original","Pointer passing","None","Function gets copy of argument"],ans:3,topic:"Functions"},
+      {q:"What is an array of pointers?",opts:["Pointer array class","Array where each element is pointer","None","2D array"],ans:1,topic:"Arrays"},
+      {q:"How to declare pointer to int?",opts:["int &p;","pointer int p;","int* p;","int p*;"],ans:2,topic:"Pointers"},
+      {q:"What is void pointer?",opts:["Null pointer","Empty pointer","None","Pointer with no specific type"],ans:3,topic:"Pointers"},
+      {q:"What is pointer to pointer?",opts:["Double pointer **","Reference","Single pointer","None"],ans:0,topic:"Pointers"},
+      {q:"What is the output of: int a=5; int* p=&a; cout<<*p;?",opts:["Address","0","5","Error"],ans:2,topic:"Pointers"},
+      {q:"What is a class in C++?",opts:["Blueprint for objects","Function group","Module","Variable"],ans:0,topic:"OOP"},
+      {q:"How to create object of class Car?",opts:["new Car c;","Car.create();","Car c;","object Car c;"],ans:2,topic:"OOP"},
+      {q:"What is a constructor?",opts:["Destructor","Auto-called method to initialize object","None","Copy function"],ans:1,topic:"OOP"},
+      {q:"What is a destructor?",opts:["Constructor","Copy constructor","Auto-called when object is destroyed","None"],ans:2,topic:"OOP"},
+      {q:"What is encapsulation?",opts:["Creating objects","Hiding data inside class","Importing","Inheriting"],ans:1,topic:"OOP"},
+      {q:"What is inheritance?",opts:["Copying code","Multiple classes","None","Child class reusing parent properties"],ans:3,topic:"OOP"},
+      {q:"What is polymorphism?",opts:["Same interface, different behavior","Multiple inheritance","None","Many methods"],ans:0,topic:"OOP"},
+      {q:"What is 'public' access?",opts:["Derived only","Class only","Accessible from anywhere","File only"],ans:2,topic:"OOP"},
+      {q:"What is 'private' access?",opts:["Accessible only within class","Everywhere","File only","Derived classes"],ans:0,topic:"OOP"},
+      {q:"What is 'protected' access?",opts:["Accessible in class and derived classes","Everywhere","File only","Class only"],ans:0,topic:"OOP"},
+      {q:"What is method overriding?",opts:["Creating new method","None","Child class redefines parent method","Copying method"],ans:2,topic:"OOP"},
+      {q:"What is function overloading?",opts:["Same name different parameters","Same everything","Different names","None"],ans:0,topic:"Functions"},
+      {q:"What is scope resolution operator?",opts:["->","**","::",".."],ans:2,topic:"Operators"},
+      {q:"What does 'this' pointer refer to?",opts:["None","Current object","Global variable","Parent class"],ans:1,topic:"Pointers"},
+      {q:"What is a virtual function?",opts:["Compile-time function","Enables runtime polymorphism","None","Hidden function"],ans:1,topic:"OOP"},
+      {q:"What is abstract class?",opts:["Has at least one pure virtual function","Template class","None","Empty class"],ans:0,topic:"OOP"},
+      {q:"What is pure virtual function?",opts:["None","Empty function","virtual void f() = 0","Virtual only"],ans:2,topic:"OOP"},
+      {q:"What is an interface in C++?",opts:["Header file","Keyword interface","Abstract class with only pure virtuals","None"],ans:2,topic:"OOP"},
+      {q:"What does 'friend' keyword do?",opts:["Grants private access to outside function/class","None","Makes public","Hides class"],ans:0,topic:"OOP"},
+      {q:"What is operator overloading?",opts:["Using operators","Custom behavior for operators on objects","None","Hiding operators"],ans:1,topic:"OOP"},
     ],
     intermediate:[
-      {q:"What does a pointer store?",opts:["Value directly","Memory address of variable","String","Float"],ans:1,topic:"Pointers"},
-      {q:"What does '&' operator return?",opts:["Value","Address of variable","Reference","None"],ans:1,topic:"Pointers"},
-      {q:"What is 'new' used for in C++?",opts:["Create variable","Dynamic memory allocation on heap","Static allocation","None"],ans:1,topic:"Memory"},
-      {q:"What is 'delete' used for?",opts:["Delete file","Free dynamically allocated memory","Remove variable","None"],ans:1,topic:"Memory"},
-      {q:"What is encapsulation?",opts:["Inheriting properties","Hiding data inside a class","Creating objects","None"],ans:1,topic:"OOP"},
-      {q:"What keyword enables polymorphism in C++?",opts:["static","virtual","inline","const"],ans:1,topic:"OOP"},
-      {q:"What is a constructor?",opts:["Destroys object","Auto-called method to initialize object","Random function","None"],ans:1,topic:"OOP"},
-      {q:"What is the difference between struct and class?",opts:["No difference","Struct default public, class default private","Struct has no methods","None"],ans:1,topic:"OOP"},
-      {q:"What is function overloading?",opts:["Same function different files","Multiple functions same name different parameters","None","Recursive function"],ans:1,topic:"Functions"},
-      {q:"What is the scope resolution operator?",opts:["->","::","**",".."],ans:1,topic:"Scope"},
-      {q:"What does 'this' pointer refer to?",opts:["Parent class","Current object","Global variable","None"],ans:1,topic:"Pointers"},
-      {q:"What is inheritance in C++?",opts:["Copying code","Child class reusing parent properties/methods","None","Creating objects"],ans:1,topic:"OOP"},
-      {q:"What is a reference variable?",opts:["Pointer","Alias for another variable","Copy of variable","None"],ans:1,topic:"References"},
-      {q:"What is the difference between pass by value and reference?",opts:["Same","Value copies data, reference passes original","Reference copies data","None"],ans:1,topic:"Functions"},
-      {q:"What is a vector in STL?",opts:["Mathematical vector","Dynamic array","Fixed array","None"],ans:1,topic:"STL"},
-      {q:"How do you add element to end of vector?",opts:["push()","add()","push_back()","append()"],ans:2,topic:"STL"},
-      {q:"What is 'const' keyword?",opts:["Variable value can change","Variable value cannot be changed","Pointer","None"],ans:1,topic:"Keywords"},
-      {q:"What is abstract class?",opts:["Empty class","Class with at least one pure virtual function","Template class","None"],ans:1,topic:"OOP"},
-      {q:"What is stack in STL?",opts:["FIFO container","LIFO container","Sorted container","None"],ans:1,topic:"STL"},
-      {q:"What is queue in STL?",opts:["LIFO container","FIFO container","Random container","None"],ans:1,topic:"STL"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
+      {q:"What is structured binding?",opts:["Auto binding","auto [a,b] = pair;","Tuple binding","None"],ans:1,topic:"C++17"},
+      {q:"What is if constexpr?",opts:["Runtime if","Compile-time if for template branching","Const if","None"],ans:1,topic:"C++17"},
+      {q:"What is fold expression?",opts:["Expands parameter pack with operator","Pack fold","Expansion","None"],ans:0,topic:"C++17"},
+      {q:"What is std::string_view?",opts:["None","String copy","Non-owning view of string data","String class"],ans:2,topic:"C++17"},
+      {q:"What is a smart pointer?",opts:["None","Automatically manages memory","Typed pointer","Fast pointer"],ans:1,topic:"Smart Pointers"},
+      {q:"What is unique_ptr?",opts:["Shared pointer","Weak pointer","Single-owner smart pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is shared_ptr?",opts:["Weak pointer","Single owner","Multiple-owner reference-counted pointer","None"],ans:2,topic:"Smart Pointers"},
+      {q:"What is weak_ptr?",opts:["Light pointer","Weak pointer","None","Non-owning reference to shared_ptr object"],ans:3,topic:"Smart Pointers"},
+      {q:"What is move semantics?",opts:["None","Memory allocation","Moving files","Transferring ownership without copying"],ans:3,topic:"C++11"},
+      {q:"What does std::move() do?",opts:["None","Casts to rvalue enabling move","Moves physically","Copies object"],ans:1,topic:"C++11"},
+      {q:"What is an rvalue?",opts:["Temporary value without address","None","Left-side value","Named variable"],ans:0,topic:"Value Categories"},
+      {q:"What is an lvalue?",opts:["None","Right-side","Named object with persistent address","Temporary"],ans:2,topic:"Value Categories"},
+      {q:"What is perfect forwarding?",opts:["None","Fast forwarding","Copying","Preserving value category when forwarding args"],ans:3,topic:"C++11"},
+      {q:"What is std::forward?",opts:["Forward declare","Used for perfect forwarding in templates","None","Forward iterator"],ans:1,topic:"C++11"},
+      {q:"What is a variadic template?",opts:["Template accepting any number of types","Template error","None","Fixed args template"],ans:0,topic:"Templates"},
+      {q:"What is template parameter pack?",opts:["Pack class","... syntax for variadic templates","Template param","None"],ans:1,topic:"Templates"},
+      {q:"What is SFINAE?",opts:["Static Function","Substitution Failure Is Not An Error","Some Failure Is Normal","None"],ans:1,topic:"Templates"},
+      {q:"What is enable_if?",opts:["None","If condition","Enables compiler","Conditionally enables template specialization"],ans:3,topic:"Templates"},
+      {q:"What is type_traits?",opts:["Compile-time type information and transformations","Type list","None","Type array"],ans:0,topic:"Templates"},
+      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","None","Runtime constant","Variable"],ans:0,topic:"C++11"},
+      {q:"What is nullptr?",opts:["Type-safe null pointer constant","Zero pointer","None","NULL replacement only"],ans:0,topic:"C++11"},
+      {q:"What is auto keyword?",opts:["Auto class","Automatic variable","None","Type deduction by compiler"],ans:3,topic:"C++11"},
+      {q:"What is decltype?",opts:["Gets type of expression at compile time","Declares type","None","Type keyword"],ans:0,topic:"C++11"},
+      {q:"What is a lambda expression?",opts:["None","Named function","Anonymous inline function","Class method"],ans:2,topic:"C++11"},
+      {q:"What is capture list in lambda?",opts:["Return type","None","[=] or [&] to capture outer variables","Parameter list"],ans:2,topic:"Lambdas"},
+      {q:"What is std::function?",opts:["Method type","Type-erased callable wrapper","Function class","None"],ans:1,topic:"Functional"},
+      {q:"What is std::bind?",opts:["Binds reference","None","Binds arguments to function","Creates class"],ans:2,topic:"Functional"},
+      {q:"What is std::thread?",opts:["Thread type","C++11 class for creating threads","None","Process class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::mutex?",opts:["Memory unit","None","Thread class","Mutual exclusion synchronization primitive"],ans:3,topic:"Concurrency"},
+      {q:"What is std::lock_guard?",opts:["None","RAII mutex lock","Manual lock","Thread lock"],ans:1,topic:"Concurrency"},
+      {q:"What is std::condition_variable?",opts:["Variable type","Allows threads to wait for condition","None","Signal class"],ans:1,topic:"Concurrency"},
+      {q:"What is std::atomic?",opts:["None","Thread safe","Atomic class","Lock-free thread-safe operations"],ans:3,topic:"Concurrency"},
+      {q:"What is std::promise and std::future?",opts:["Promise class","Future class","Async value passing between threads","None"],ans:2,topic:"Concurrency"},
+      {q:"What is std::async?",opts:["Runs function asynchronously","None","Thread function","Async keyword"],ans:0,topic:"Concurrency"},
+      {q:"What is a vtable?",opts:["None","Variable table","Virtual function table for runtime dispatch","Vector table"],ans:2,topic:"Internals"},
+      {q:"What is vptr?",opts:["Pointer to vtable in each object","Void pointer","Virtual pointer","None"],ans:0,topic:"Internals"},
+      {q:"What is CRTP?",opts:["Common Runtime Type","None","C++ Runtime Template","Curiously Recurring Template Pattern"],ans:3,topic:"Patterns"},
+      {q:"What is type erasure?",opts:["Casting types","None","Hiding concrete type behind interface","Removing types"],ans:2,topic:"Patterns"},
+      {q:"What is the pimpl idiom?",opts:["None","Private impl","Pointer to implementation for ABI stability","Public impl"],ans:2,topic:"Patterns"},
+      {q:"What is ADL?",opts:["Array Default List","None","Auto Detect Link","Argument-Dependent Lookup for namespace resolution"],ans:3,topic:"Internals"},
+      {q:"What is ODR?",opts:["One Definition Rule","Order Definition","Object Definition","None"],ans:0,topic:"Internals"},
+      {q:"What is undefined behavior?",opts:["Code whose result is unpredictable","Error type","Warning type","None"],ans:0,topic:"Internals"},
+      {q:"What is alignment in memory?",opts:["Memory order","None","Byte order","Data stored at addresses divisible by its size"],ans:3,topic:"Memory"},
+      {q:"What is padding in structs?",opts:["Metadata","Extra fields","Compiler-added bytes for alignment","None"],ans:2,topic:"Memory"},
+      {q:"What is copy elision?",opts:["None","Compiler optimization avoiding unnecessary copies","Copy method","Copy error"],ans:1,topic:"Optimization"},
+      {q:"What is RVO?",opts:["Return Value Optimization — avoid copying return","Return variable","Return operator","None"],ans:0,topic:"Optimization"},
+      {q:"What is NRVO?",opts:["Non-Return Value","Named Return","Named RVO for named local variables","None"],ans:2,topic:"Optimization"},
+      {q:"What is a placement new?",opts:["Place class","New operator","None","Constructs object at specific memory address"],ans:3,topic:"Memory"},
+      {q:"What is std::variant?",opts:["Array type","Variant class","Type-safe union holding one of several types","None"],ans:2,topic:"C++17"},
+      {q:"What is std::optional?",opts:["None","Wrapper for value that may not exist","Maybe class","Optional class"],ans:1,topic:"C++17"},
+      {q:"What is std::any?",opts:["Type-safe container for any value","Void wrapper","Any class","None"],ans:0,topic:"C++17"},
     ],
     advanced:[
-      {q:"What is RAII in C++?",opts:["Resource Acquisition Is Initialization — tie resource lifecycle to object","Random Access","None","Resource Array"],ans:0,topic:"Memory Management"},
-      {q:"What is a smart pointer?",opts:["Fast pointer","Automatically manages memory (unique_ptr, shared_ptr)","Pointer to pointer","None"],ans:1,topic:"Memory Management"},
-      {q:"Difference between unique_ptr and shared_ptr?",opts:["Same","unique_ptr — single owner, shared_ptr — multiple owners","shared_ptr — single owner","None"],ans:1,topic:"Smart Pointers"},
-      {q:"What is move semantics?",opts:["Moving files","Transferring ownership of resources efficiently without copying","Memory allocation","None"],ans:1,topic:"C++11"},
-      {q:"What is std::move()?",opts:["Physically moves object","Casts to rvalue reference enabling move semantics","Copies object","None"],ans:1,topic:"C++11"},
-      {q:"What is a template in C++?",opts:["HTML template","Generic programming — write code for any type","File template","None"],ans:1,topic:"Templates"},
-      {q:"What is template specialization?",opts:["Generic template","Custom implementation for specific type","Template error","None"],ans:1,topic:"Templates"},
-      {q:"What is a variadic template?",opts:["Template with fixed args","Template accepting any number of type args","None","Error"],ans:1,topic:"Templates"},
-      {q:"What is the vtable?",opts:["Variable table","Virtual function table for runtime polymorphism","Vector table","None"],ans:1,topic:"Internals"},
-      {q:"What is copy elision / RVO?",opts:["Copying error","Compiler optimization to avoid unnecessary copies","None","Memory error"],ans:1,topic:"Optimization"},
-      {q:"What are lvalue and rvalue?",opts:["Same thing","lvalue has address (persistent), rvalue is temporary","rvalue has address","None"],ans:1,topic:"C++11"},
-      {q:"What is std::thread?",opts:["String thread","C++11 class for creating threads","Timer","None"],ans:1,topic:"Concurrency"},
-      {q:"What is a mutex?",opts:["Math function","Synchronization primitive to protect shared data","Thread","None"],ans:1,topic:"Concurrency"},
-      {q:"What is constexpr?",opts:["Constant expression evaluated at compile time","Runtime constant","None","Variable"],ans:0,topic:"C++11"},
-      {q:"What is std::optional?",opts:["Error type","Wrapper for value that may or may not exist","Pointer","None"],ans:1,topic:"C++17"},
-      {q:"What is structured binding in C++17?",opts:["Binding threads","Destructuring tuple/struct into named variables","Memory binding","None"],ans:1,topic:"C++17"},
-      {q:"What is SFINAE?",opts:["Substitution Failure Is Not An Error — template metaprogramming technique","Error type","None","Function"],ans:0,topic:"Templates"},
-      {q:"What does noexcept mean?",opts:["Always throws","Promises function won't throw exceptions","Ignores exceptions","None"],ans:1,topic:"Exceptions"},
-      {q:"What is std::variant?",opts:["Array type","Type-safe union — holds one of several types","None","Pointer"],ans:1,topic:"C++17"},
-      {q:"What is perfect forwarding?",opts:["Fast forwarding","Preserving value category when forwarding args to another function","None","Copying"],ans:1,topic:"C++11"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
+      {q:"What is the as-if rule?",opts:["Compiler can optimize as long as observable behavior same","Assignment rule","None","Alias rule"],ans:0,topic:"Optimization"},
+      {q:"What is sequence point?",opts:["Order point","Point where side effects are complete","None","Sequence class"],ans:1,topic:"Internals"},
+      {q:"What is strict aliasing?",opts:["Accessing object through wrong type is UB","Alias rule","None","Pointer rule"],ans:0,topic:"Internals"},
+      {q:"What is memory ordering in atomics?",opts:["None","Byte order","Memory layout","Controls visibility of operations across threads"],ans:3,topic:"Concurrency"},
+      {q:"What is memory_order_seq_cst?",opts:["Strict ordering","None","Strongest ordering — total sequential consistency","Sequential constant"],ans:2,topic:"Concurrency"},
+      {q:"What is memory_order_relaxed?",opts:["Relaxed memory","None","Weak ordering","No synchronization guarantees"],ans:3,topic:"Concurrency"},
+      {q:"What is ABA problem?",opts:["Race condition","Double A problem","None","Value changes from A to B back to A undetected"],ans:3,topic:"Concurrency"},
+      {q:"What is lock-free programming?",opts:["None","Thread-free","Algorithms using atomics without mutexes","No locks"],ans:2,topic:"Concurrency"},
+      {q:"What is false sharing?",opts:["Wrong sharing","None","Cache miss","Cache lines ping-ponging between cores"],ans:3,topic:"Performance"},
+      {q:"What is cache line?",opts:["Memory page","None","64-byte unit of cache transfer","Cache unit"],ans:2,topic:"Performance"},
+      {q:"What is branch prediction?",opts:["None","CPU guessing which branch will execute","Jump prediction","Branch compiler"],ans:1,topic:"Performance"},
+      {q:"What is SIMD?",opts:["Single Instruction","None","Single Instruction Multiple Data vectorization","Multiple Data"],ans:2,topic:"Performance"},
+      {q:"What is expression templates?",opts:["Template expr","None","Lazy evaluation of math expressions via templates","Lazy template"],ans:2,topic:"Advanced Templates"},
+      {q:"What is the diamond problem?",opts:["Diamond class","Multiple base","None","Ambiguity when class inherits same base twice"],ans:3,topic:"OOP"},
+      {q:"How to solve diamond problem?",opts:["None","Private inheritance","Virtual inheritance","Multiple inheritance"],ans:2,topic:"OOP"},
+      {q:"What is std::coroutine (C++20)?",opts:["Async function","Coroutine class","None","Language-level coroutine support"],ans:3,topic:"C++20"},
+      {q:"What is co_await?",opts:["Async wait","Await operator","None","Suspends coroutine until awaitable completes"],ans:3,topic:"C++20"},
+      {q:"What is co_yield?",opts:["Yield operator","None","Async yield","Suspends coroutine and returns value"],ans:3,topic:"C++20"},
+      {q:"What is a module in C++20?",opts:["Replacement for headers with better encapsulation","Package","Namespace","None"],ans:0,topic:"C++20"},
+      {q:"What is concepts in C++20?",opts:["Type concepts","None","Template concepts","Named constraints on template parameters"],ans:3,topic:"C++20"},
+      {q:"What is ranges in C++20?",opts:["None","Array ranges","Container ranges","Composable lazy range algorithms"],ans:3,topic:"C++20"},
+      {q:"What is std::span?",opts:["Span class","Non-owning view over contiguous sequence","Array view","None"],ans:1,topic:"C++20"},
+      {q:"What is three-way comparison <=>?",opts:["None","Spaceship operator","Three compare","Returns less/equal/greater in one operation"],ans:3,topic:"C++20"},
+      {q:"What is designated initializers?",opts:["Named init","Struct init by field names: {.x=1,.y=2}","Field init","None"],ans:1,topic:"C++20"},
+      {q:"What is std::format?",opts:["Type-safe string formatting","String format","Format class","None"],ans:0,topic:"C++20"},
+      {q:"What is jthread?",opts:["Java thread","Joined thread","None","Thread with automatic join and stop token"],ans:3,topic:"C++20"},
+      {q:"What is std::stop_token?",opts:["None","Cancel token","Cooperative cancellation mechanism","Stop class"],ans:2,topic:"C++20"},
+      {q:"What is a generator coroutine?",opts:["Coroutine yielding sequence of values","Generator class","None","Range generator"],ans:0,topic:"C++20"},
+      {q:"What is std::latch?",opts:["Single-use barrier for thread synchronization","Latch class","Thread latch","None"],ans:0,topic:"C++20"},
+      {q:"What is std::barrier?",opts:["Reusable synchronization point for threads","Barrier class","Thread barrier","None"],ans:0,topic:"C++20"},
+      {q:"What is std::semaphore?",opts:["Semaphore class","None","Thread signal","Counting synchronization primitive"],ans:3,topic:"C++20"},
+      {q:"What is flat_map in C++23?",opts:["Sorted array-backed map for cache efficiency","Array map","None","Flat container"],ans:0,topic:"C++23"},
+      {q:"What is std::expected?",opts:["Either a value or an error — error handling","Result type","None","Expected class"],ans:0,topic:"C++23"},
+      {q:"What is std::mdspan?",opts:["Multi-dimensional span view","Matrix span","Multi-span","None"],ans:0,topic:"C++23"},
+      {q:"What is deducing this in C++23?",opts:["None","Self parameter","This deduction","Explicit this parameter in member functions"],ans:3,topic:"C++23"},
+      {q:"What is std::print in C++23?",opts:["Formatted output to stdout","Print class","None","Format print"],ans:0,topic:"C++23"},
+      {q:"What is stack unwinding?",opts:["None","Stack clearing","Destructors called during exception propagation","Unwind class"],ans:2,topic:"Exceptions"},
+      {q:"What is exception specification noexcept?",opts:["No exception","Exception spec","None","Promises function won't throw"],ans:3,topic:"Exceptions"},
+      {q:"What is std::terminate?",opts:["Program end","None","Terminate function","Called when exception not caught"],ans:3,topic:"Exceptions"},
+      {q:"What is SEH?",opts:["System Exception Handling","None","Structured Exception Handling on Windows","Safe Exception Handling"],ans:2,topic:"Exceptions"},
     ],
   },
   c3:{
     basic:[
-      {q:"What does HTML stand for?",opts:["HyperText Markup Language","High Tech Modern Language","HyperText Modern Links","None"],ans:0,topic:"HTML"},
-      {q:"Which tag creates a hyperlink?",opts:["<link>","<a>","<href>","<url>"],ans:1,topic:"HTML"},
-      {q:"Which HTML tag is for the largest heading?",opts:["<h6>","<h1>","<header>","<title>"],ans:1,topic:"HTML"},
-      {q:"What does CSS stand for?",opts:["Computer Style Sheets","Cascading Style Sheets","Creative Style System","None"],ans:1,topic:"CSS"},
-      {q:"How do you select by id in CSS?",opts:[".myid","#myid","*myid","@myid"],ans:1,topic:"CSS"},
-      {q:"How do you select by class in CSS?",opts:["#myclass",".myclass","*myclass","@myclass"],ans:1,topic:"CSS"},
-      {q:"Which CSS property changes text color?",opts:["text-color","font-color","color","foreground"],ans:2,topic:"CSS"},
-      {q:"What does 'display: flex' do?",opts:["Hides element","Creates flex container","Floats element","None"],ans:1,topic:"CSS"},
-      {q:"What is JavaScript used for?",opts:["Styling","Structure","Interactivity","Database"],ans:2,topic:"JavaScript"},
-      {q:"How do you declare a variable in modern JS?",opts:["variable x","var only","let or const","dim x"],ans:2,topic:"JavaScript"},
-      {q:"What does DOM stand for?",opts:["Data Object Model","Document Object Model","Dynamic Object Model","None"],ans:1,topic:"JavaScript"},
-      {q:"How do you select element by id in JS?",opts:["selectId()","getElementById()","getById()","findId()"],ans:1,topic:"JavaScript"},
-      {q:"What does 'console.log()' do?",opts:["Creates log file","Prints to browser console","Alerts user","None"],ans:1,topic:"JavaScript"},
-      {q:"What is an event listener?",opts:["Variable","Function that responds to user events","Loop","None"],ans:1,topic:"Events"},
-      {q:"What does 'async' keyword do?",opts:["Makes function synchronous","Marks function as asynchronous","Loops function","None"],ans:1,topic:"Async"},
-      {q:"What is a semantic HTML tag?",opts:["Styled tag","Tag with meaningful name like <article> <nav>","Custom tag","None"],ans:1,topic:"HTML"},
-      {q:"What does 'padding' do in CSS?",opts:["Space outside element","Space inside element between content and border","Border width","None"],ans:1,topic:"CSS"},
-      {q:"What does 'margin' do in CSS?",opts:["Space inside element","Space outside element border","Padding","None"],ans:1,topic:"CSS"},
-      {q:"Which tag is used for unordered list?",opts:["<ol>","<list>","<ul>","<li>"],ans:2,topic:"HTML"},
-      {q:"What does 'alt' attribute do in <img>?",opts:["Changes image size","Provides alternate text","Links image","None"],ans:1,topic:"HTML"},
+      {q:"What does HTML stand for?",opts:["High Tech Modern Language","HyperText Markup Language","Home Tool Markup Language","HyperText Modern Links"],ans:1,topic:"HTML"},
+      {q:"Which tag creates a hyperlink?",opts:["<a>","<href>","<link>","<url>"],ans:0,topic:"HTML"},
+      {q:"Which HTML tag is for largest heading?",opts:["<title>","<header>","<h6>","<h1>"],ans:3,topic:"HTML"},
+      {q:"What does CSS stand for?",opts:["Computer Style Sheets","Colorful Style Sheets","Cascading Style Sheets","Creative Style System"],ans:2,topic:"CSS"},
+      {q:"How to select element by id in CSS?",opts:["#myid","@myid","*myid",".myid"],ans:0,topic:"CSS"},
+      {q:"How to select by class in CSS?",opts:["*myclass","@myclass",".myclass","#myclass"],ans:2,topic:"CSS"},
+      {q:"Which CSS property changes text color?",opts:["foreground","text-color","color","font-color"],ans:2,topic:"CSS"},
+      {q:"What does 'display: flex' do?",opts:["Floats element","Creates flex container","None","Hides element"],ans:1,topic:"CSS"},
+      {q:"What is JavaScript used for?",opts:["Styling","Database","Interactivity","Structure"],ans:2,topic:"JavaScript"},
+      {q:"How to declare variable in modern JS?",opts:["let or const","variable x","dim x","var only"],ans:0,topic:"JavaScript"},
+      {q:"What does DOM stand for?",opts:["None","Document Object Model","Data Object Model","Dynamic Object Model"],ans:1,topic:"JavaScript"},
+      {q:"How to select element by id in JS?",opts:["getById()","findId()","getElementById()","selectId()"],ans:2,topic:"JavaScript"},
+      {q:"What does console.log() do?",opts:["Creates log file","Alerts user","None","Prints to browser console"],ans:3,topic:"JavaScript"},
+      {q:"What is an event listener?",opts:["Variable","None","Loop","Function responding to user events"],ans:3,topic:"Events"},
+      {q:"What does 'async' keyword do?",opts:["Marks function as asynchronous","Loops function","Makes synchronous","None"],ans:0,topic:"Async"},
+      {q:"What is a semantic HTML tag?",opts:["None","Styled tag","Tag with meaningful name like <article>","Custom tag"],ans:2,topic:"HTML"},
+      {q:"What does 'padding' do in CSS?",opts:["Space inside between content and border","Space outside element","None","Border width"],ans:0,topic:"CSS"},
+      {q:"What does 'margin' do in CSS?",opts:["Space inside element","Padding","None","Space outside element border"],ans:3,topic:"CSS"},
+      {q:"Which tag is for unordered list?",opts:["<li>","<ul>","<list>","<ol>"],ans:1,topic:"HTML"},
+      {q:"What does 'alt' attribute do in img?",opts:["None","Links image","Changes size","Provides alternate text"],ans:3,topic:"HTML"},
+      {q:"What is the HTML doctype declaration?",opts:["<!DOCTYPE html>","<head>","<html>","<document>"],ans:0,topic:"HTML"},
+      {q:"What tag creates a paragraph?",opts:["<text>","<p>","<para>","<div>"],ans:1,topic:"HTML"},
+      {q:"What does <head> contain?",opts:["Footer","Navigation","Page content","Metadata not displayed on page"],ans:3,topic:"HTML"},
+      {q:"What does <body> contain?",opts:["Styles only","Scripts only","Metadata","Visible page content"],ans:3,topic:"HTML"},
+      {q:"What does <title> set?",opts:["Page heading","None","Browser tab title","Meta title"],ans:2,topic:"HTML"},
+      {q:"What is the <div> tag?",opts:["Divider line","Generic block container","Division title","None"],ans:1,topic:"HTML"},
+      {q:"What is the <span> tag?",opts:["Spacer","Block element","None","Generic inline container"],ans:3,topic:"HTML"},
+      {q:"What is the <img> tag?",opts:["Creates icon","None","Embeds image","Inserts link"],ans:2,topic:"HTML"},
+      {q:"What is the <form> tag?",opts:["None","Creates input form","Creates table","Creates list"],ans:1,topic:"HTML"},
+      {q:"What is <input> tag?",opts:["None","Creates form","Creates button only","Creates interactive input field"],ans:3,topic:"HTML"},
+      {q:"What is the <table> tag?",opts:["Creates list","None","Creates table structure","Creates grid"],ans:2,topic:"HTML"},
+      {q:"What is <thead> and <tbody>?",opts:["Table head and body sections","None","Top and bottom","Title and body"],ans:0,topic:"HTML"},
+      {q:"What is <th> vs <td>?",opts:["th is table","None","Same element","th is header cell, td is data cell"],ans:3,topic:"HTML"},
+      {q:"What attribute makes link open new tab?",opts:["tab='new'","new='true'","target='_blank'","open='tab'"],ans:2,topic:"HTML"},
+      {q:"What does <br> do?",opts:["None","Adds space","Creates paragraph","Inserts line break"],ans:3,topic:"HTML"},
+      {q:"What does <hr> do?",opts:["Horizontal rule/divider","Header","Home row","None"],ans:0,topic:"HTML"},
+      {q:"What is meta charset='UTF-8'?",opts:["None","Sets language","Sets character encoding","Sets font"],ans:2,topic:"HTML"},
+      {q:"What is the <nav> tag?",opts:["Number tag","None","Name tag","Navigation links section"],ans:3,topic:"HTML"},
+      {q:"What is the <footer> tag?",opts:["Page footer section","File footer","Form footer","None"],ans:0,topic:"HTML"},
+      {q:"What is the <header> tag?",opts:["File header","None","Head element","Page header section"],ans:3,topic:"HTML"},
+      {q:"What is CSS font-size property?",opts:["Sets text size","Sets weight","None","Sets font type"],ans:0,topic:"CSS"},
+      {q:"What is CSS font-family?",opts:["Sets color","Sets weight","Sets size","Sets the typeface"],ans:3,topic:"CSS"},
+      {q:"What is CSS font-weight?",opts:["Sets color","Sets text size","Sets text thickness","Sets font"],ans:2,topic:"CSS"},
+      {q:"What is CSS background-color?",opts:["Sets shadow","Sets border","Sets element background","Sets text color"],ans:2,topic:"CSS"},
+      {q:"What is CSS border property?",opts:["Adds border around element","Adds margin","Adds shadow","Adds padding"],ans:0,topic:"CSS"},
+      {q:"What is CSS border-radius?",opts:["None","Rounds border","Rounds corners","Rotates element"],ans:2,topic:"CSS"},
+      {q:"What is CSS width and height?",opts:["Border size","Dimensions of element","None","Content size"],ans:1,topic:"CSS"},
+      {q:"What is CSS opacity?",opts:["Sets shadow","Sets transparency of element","Sets color","Sets blur"],ans:1,topic:"CSS"},
+      {q:"What is CSS cursor property?",opts:["Changes hover","Changes click","None","Changes mouse cursor style"],ans:3,topic:"CSS"},
+      {q:"What is CSS visibility: hidden?",opts:["Hides but keeps space","Removes element","Changes opacity","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS display: none?",opts:["Removes from layout completely","Hides only","None","Changes opacity"],ans:0,topic:"CSS"},
+      {q:"What is CSS position: relative?",opts:["Fixed position","Positioned relative to its normal flow","None","Absolute position"],ans:1,topic:"CSS"},
+      {q:"What is CSS position: fixed?",opts:["Fixed to viewport, doesn't scroll","Relative position","Fixed in parent","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS position: sticky?",opts:["Always fixed","Sticks to position on scroll","None","Relative"],ans:1,topic:"CSS"},
+      {q:"What is CSS z-index?",opts:["Zoom level","Controls stacking order","None","Index position"],ans:1,topic:"CSS"},
+      {q:"What is CSS overflow: hidden?",opts:["Clips content exceeding element bounds","None","Adds scrollbar","Shows all"],ans:0,topic:"CSS"},
+      {q:"What is CSS text-align?",opts:["Text indent","Vertical alignment","None","Horizontal text alignment"],ans:3,topic:"CSS"},
+      {q:"What is CSS line-height?",opts:["Font size","None","Space between lines of text","Paragraph spacing"],ans:2,topic:"CSS"},
+      {q:"What is CSS letter-spacing?",opts:["Line spacing","Space between characters","Word spacing","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS text-decoration?",opts:["Text color","Underline, strikethrough etc","Text size","None"],ans:1,topic:"CSS"},
+      {q:"What does var(--color) do in CSS?",opts:["Uses CSS custom property value","Creates variable","None","Imports color"],ans:0,topic:"CSS"},
+      {q:"What is :hover pseudo-class?",opts:["Focus style","None","Styles element when mouse hovers","Click style"],ans:2,topic:"CSS"},
+      {q:"What is :focus pseudo-class?",opts:["Active style","None","Hover style","Styles element when focused"],ans:3,topic:"CSS"},
+      {q:"What is :nth-child()?",opts:["None","Nth id","Selects element by position in parent","Nth class"],ans:2,topic:"CSS"},
+      {q:"What is ::before pseudo-element?",opts:["Before tag","Inserts content before element","Before class","None"],ans:1,topic:"CSS"},
+      {q:"What is ::after pseudo-element?",opts:["Inserts content after element","None","After class","After tag"],ans:0,topic:"CSS"},
+      {q:"What is CSS transition?",opts:["Animates property changes smoothly","Transform","Instant change","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS animation?",opts:["None","Transition","Movement","Keyframe-based continuous animation"],ans:3,topic:"CSS"},
+      {q:"What is CSS transform?",opts:["Move position","None","Change style","Rotate/scale/translate element"],ans:3,topic:"CSS"},
+      {q:"What is CSS media query?",opts:["Applies styles based on screen size","Screen check","Media import","None"],ans:0,topic:"CSS"},
+      {q:"What is @keyframes?",opts:["Frame rate","Defines animation keyframes","None","Key events"],ans:1,topic:"CSS"},
+      {q:"What is CSS flexbox?",opts:["1D layout for row/column arrangement","Grid system","None","2D layout"],ans:0,topic:"CSS"},
+      {q:"What is flex-direction?",opts:["Flex speed","Flex order","Sets main axis direction of flex","None"],ans:2,topic:"CSS"},
+      {q:"What is justify-content?",opts:["Aligns items along main axis","Aligns cross axis","None","Centers items"],ans:0,topic:"CSS"},
+      {q:"What is align-items?",opts:["Aligns main axis","None","Aligns items along cross axis","Centers items"],ans:2,topic:"CSS"},
+      {q:"What is flex-wrap?",opts:["Allows flex items to wrap to new line","Wraps text","Wraps container","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS Grid?",opts:["None","Flex variant","1D layout","2D layout system for rows and columns"],ans:3,topic:"CSS"},
+      {q:"What is grid-template-columns?",opts:["Grid areas","None","Defines column sizes in grid","Row sizes"],ans:2,topic:"CSS"},
+      {q:"What is grid-gap?",opts:["Grid padding","Grid margin","Space between grid items","None"],ans:2,topic:"CSS"},
+      {q:"What is grid-column-span?",opts:["None","Column gap","Makes item span multiple columns","Column count"],ans:2,topic:"CSS"},
+      {q:"What is responsive design?",opts:["Fast loading","None","Design adapting to different screen sizes","Animated design"],ans:2,topic:"Responsive"},
+      {q:"What is mobile-first design?",opts:["Mobile only","Design for mobile then scale up","None","Desktop first"],ans:1,topic:"Responsive"},
+      {q:"What is viewport meta tag?",opts:["View size","Screen tag","Controls mobile display scaling","None"],ans:2,topic:"HTML"},
+      {q:"What is the srcset attribute on img?",opts:["None","Provides different images for screen sizes","Image set","Source set class"],ans:1,topic:"HTML"},
+      {q:"What is picture element?",opts:["Picture class","Image container","Provides multiple image sources for responsive","None"],ans:2,topic:"HTML"},
+      {q:"What is rel='stylesheet'?",opts:["Relative style","Links external CSS file","None","Style relation"],ans:1,topic:"HTML"},
+      {q:"What does defer attribute on script do?",opts:["Runs script after HTML parsed","Defers loading","Pauses script","None"],ans:0,topic:"HTML"},
+      {q:"What does async attribute on script do?",opts:["Async class","Wait for DOM","Downloads and runs script immediately","None"],ans:2,topic:"HTML"},
+      {q:"What is data-* attribute?",opts:["None","Custom attribute for storing data","Data import","Data class"],ans:1,topic:"HTML"},
+      {q:"What is aria-label?",opts:["Accessibility label for screen readers","Alt text","None","Title text"],ans:0,topic:"Accessibility"},
+      {q:"What is tabindex?",opts:["Controls keyboard tab order","Tab class","Table index","None"],ans:0,topic:"Accessibility"},
+      {q:"What is role attribute in HTML?",opts:["Element role","Page role","Defines ARIA role for accessibility","None"],ans:2,topic:"Accessibility"},
+      {q:"What is alt text for images?",opts:["Image caption","Descriptive text for screen readers","None","Image title"],ans:1,topic:"Accessibility"},
+      {q:"What does HTML stand for?",opts:["High Tech Modern Language","HyperText Markup Language","Home Tool Markup Language","HyperText Modern Links"],ans:1,topic:"HTML"},
+      {q:"Which tag creates a hyperlink?",opts:["<a>","<href>","<link>","<url>"],ans:0,topic:"HTML"},
+      {q:"Which HTML tag is for largest heading?",opts:["<title>","<header>","<h6>","<h1>"],ans:3,topic:"HTML"},
+      {q:"What does CSS stand for?",opts:["Computer Style Sheets","Colorful Style Sheets","Cascading Style Sheets","Creative Style System"],ans:2,topic:"CSS"},
+      {q:"How to select element by id in CSS?",opts:["#myid","@myid","*myid",".myid"],ans:0,topic:"CSS"},
+      {q:"How to select by class in CSS?",opts:["*myclass","@myclass",".myclass","#myclass"],ans:2,topic:"CSS"},
+      {q:"Which CSS property changes text color?",opts:["foreground","text-color","color","font-color"],ans:2,topic:"CSS"},
+      {q:"What does 'display: flex' do?",opts:["Floats element","Creates flex container","None","Hides element"],ans:1,topic:"CSS"},
+      {q:"What is JavaScript used for?",opts:["Styling","Database","Interactivity","Structure"],ans:2,topic:"JavaScript"},
+      {q:"How to declare variable in modern JS?",opts:["let or const","variable x","dim x","var only"],ans:0,topic:"JavaScript"},
+      {q:"What does DOM stand for?",opts:["None","Document Object Model","Data Object Model","Dynamic Object Model"],ans:1,topic:"JavaScript"},
+      {q:"How to select element by id in JS?",opts:["getById()","findId()","getElementById()","selectId()"],ans:2,topic:"JavaScript"},
+      {q:"What does console.log() do?",opts:["Creates log file","Alerts user","None","Prints to browser console"],ans:3,topic:"JavaScript"},
+      {q:"What is an event listener?",opts:["Variable","None","Loop","Function responding to user events"],ans:3,topic:"Events"},
+      {q:"What does 'async' keyword do?",opts:["Marks function as asynchronous","Loops function","Makes synchronous","None"],ans:0,topic:"Async"},
+      {q:"What is a semantic HTML tag?",opts:["None","Styled tag","Tag with meaningful name like <article>","Custom tag"],ans:2,topic:"HTML"},
+      {q:"What does 'padding' do in CSS?",opts:["Space inside between content and border","Space outside element","None","Border width"],ans:0,topic:"CSS"},
+      {q:"What does 'margin' do in CSS?",opts:["Space inside element","Padding","None","Space outside element border"],ans:3,topic:"CSS"},
+      {q:"Which tag is for unordered list?",opts:["<li>","<ul>","<list>","<ol>"],ans:1,topic:"HTML"},
+      {q:"What does 'alt' attribute do in img?",opts:["None","Links image","Changes size","Provides alternate text"],ans:3,topic:"HTML"},
+      {q:"What is the HTML doctype declaration?",opts:["<!DOCTYPE html>","<head>","<html>","<document>"],ans:0,topic:"HTML"},
+      {q:"What tag creates a paragraph?",opts:["<text>","<p>","<para>","<div>"],ans:1,topic:"HTML"},
+      {q:"What does <head> contain?",opts:["Footer","Navigation","Page content","Metadata not displayed on page"],ans:3,topic:"HTML"},
+      {q:"What does <body> contain?",opts:["Styles only","Scripts only","Metadata","Visible page content"],ans:3,topic:"HTML"},
+      {q:"What does <title> set?",opts:["Page heading","None","Browser tab title","Meta title"],ans:2,topic:"HTML"},
+      {q:"What is the <div> tag?",opts:["Divider line","Generic block container","Division title","None"],ans:1,topic:"HTML"},
+      {q:"What is the <span> tag?",opts:["Spacer","Block element","None","Generic inline container"],ans:3,topic:"HTML"},
+      {q:"What is the <img> tag?",opts:["Creates icon","None","Embeds image","Inserts link"],ans:2,topic:"HTML"},
+      {q:"What is the <form> tag?",opts:["None","Creates input form","Creates table","Creates list"],ans:1,topic:"HTML"},
+      {q:"What is <input> tag?",opts:["None","Creates form","Creates button only","Creates interactive input field"],ans:3,topic:"HTML"},
+      {q:"What is the <table> tag?",opts:["Creates list","None","Creates table structure","Creates grid"],ans:2,topic:"HTML"},
+      {q:"What is <thead> and <tbody>?",opts:["Table head and body sections","None","Top and bottom","Title and body"],ans:0,topic:"HTML"},
+      {q:"What is <th> vs <td>?",opts:["th is table","None","Same element","th is header cell, td is data cell"],ans:3,topic:"HTML"},
+      {q:"What attribute makes link open new tab?",opts:["tab='new'","new='true'","target='_blank'","open='tab'"],ans:2,topic:"HTML"},
+      {q:"What does <br> do?",opts:["None","Adds space","Creates paragraph","Inserts line break"],ans:3,topic:"HTML"},
+      {q:"What does <hr> do?",opts:["Horizontal rule/divider","Header","Home row","None"],ans:0,topic:"HTML"},
+      {q:"What is meta charset='UTF-8'?",opts:["None","Sets language","Sets character encoding","Sets font"],ans:2,topic:"HTML"},
+      {q:"What is the <nav> tag?",opts:["Number tag","None","Name tag","Navigation links section"],ans:3,topic:"HTML"},
+      {q:"What is the <footer> tag?",opts:["Page footer section","File footer","Form footer","None"],ans:0,topic:"HTML"},
+      {q:"What is the <header> tag?",opts:["File header","None","Head element","Page header section"],ans:3,topic:"HTML"},
+      {q:"What is CSS font-size property?",opts:["Sets text size","Sets weight","None","Sets font type"],ans:0,topic:"CSS"},
+      {q:"What is CSS font-family?",opts:["Sets color","Sets weight","Sets size","Sets the typeface"],ans:3,topic:"CSS"},
+      {q:"What is CSS font-weight?",opts:["Sets color","Sets text size","Sets text thickness","Sets font"],ans:2,topic:"CSS"},
+      {q:"What is CSS background-color?",opts:["Sets shadow","Sets border","Sets element background","Sets text color"],ans:2,topic:"CSS"},
+      {q:"What is CSS border property?",opts:["Adds border around element","Adds margin","Adds shadow","Adds padding"],ans:0,topic:"CSS"},
+      {q:"What is CSS border-radius?",opts:["None","Rounds border","Rounds corners","Rotates element"],ans:2,topic:"CSS"},
+      {q:"What is CSS width and height?",opts:["Border size","Dimensions of element","None","Content size"],ans:1,topic:"CSS"},
+      {q:"What is CSS opacity?",opts:["Sets shadow","Sets transparency of element","Sets color","Sets blur"],ans:1,topic:"CSS"},
+      {q:"What is CSS cursor property?",opts:["Changes hover","Changes click","None","Changes mouse cursor style"],ans:3,topic:"CSS"},
+      {q:"What is CSS visibility: hidden?",opts:["Hides but keeps space","Removes element","Changes opacity","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS display: none?",opts:["Removes from layout completely","Hides only","None","Changes opacity"],ans:0,topic:"CSS"},
+      {q:"What is CSS position: relative?",opts:["Fixed position","Positioned relative to its normal flow","None","Absolute position"],ans:1,topic:"CSS"},
+      {q:"What is CSS position: fixed?",opts:["Fixed to viewport, doesn't scroll","Relative position","Fixed in parent","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS position: sticky?",opts:["Always fixed","Sticks to position on scroll","None","Relative"],ans:1,topic:"CSS"},
+      {q:"What is CSS z-index?",opts:["Zoom level","Controls stacking order","None","Index position"],ans:1,topic:"CSS"},
+      {q:"What is CSS overflow: hidden?",opts:["Clips content exceeding element bounds","None","Adds scrollbar","Shows all"],ans:0,topic:"CSS"},
+      {q:"What is CSS text-align?",opts:["Text indent","Vertical alignment","None","Horizontal text alignment"],ans:3,topic:"CSS"},
+      {q:"What is CSS line-height?",opts:["Font size","None","Space between lines of text","Paragraph spacing"],ans:2,topic:"CSS"},
+      {q:"What is CSS letter-spacing?",opts:["Line spacing","Space between characters","Word spacing","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS text-decoration?",opts:["Text color","Underline, strikethrough etc","Text size","None"],ans:1,topic:"CSS"},
+      {q:"What does var(--color) do in CSS?",opts:["Uses CSS custom property value","Creates variable","None","Imports color"],ans:0,topic:"CSS"},
+      {q:"What is :hover pseudo-class?",opts:["Focus style","None","Styles element when mouse hovers","Click style"],ans:2,topic:"CSS"},
+      {q:"What is :focus pseudo-class?",opts:["Active style","None","Hover style","Styles element when focused"],ans:3,topic:"CSS"},
+      {q:"What is :nth-child()?",opts:["None","Nth id","Selects element by position in parent","Nth class"],ans:2,topic:"CSS"},
+      {q:"What is ::before pseudo-element?",opts:["Before tag","Inserts content before element","Before class","None"],ans:1,topic:"CSS"},
+      {q:"What is ::after pseudo-element?",opts:["Inserts content after element","None","After class","After tag"],ans:0,topic:"CSS"},
+      {q:"What is CSS transition?",opts:["Animates property changes smoothly","Transform","Instant change","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS animation?",opts:["None","Transition","Movement","Keyframe-based continuous animation"],ans:3,topic:"CSS"},
+      {q:"What is CSS transform?",opts:["Move position","None","Change style","Rotate/scale/translate element"],ans:3,topic:"CSS"},
+      {q:"What is CSS media query?",opts:["Applies styles based on screen size","Screen check","Media import","None"],ans:0,topic:"CSS"},
+      {q:"What is @keyframes?",opts:["Frame rate","Defines animation keyframes","None","Key events"],ans:1,topic:"CSS"},
+      {q:"What is CSS flexbox?",opts:["1D layout for row/column arrangement","Grid system","None","2D layout"],ans:0,topic:"CSS"},
+      {q:"What is flex-direction?",opts:["Flex speed","Flex order","Sets main axis direction of flex","None"],ans:2,topic:"CSS"},
+      {q:"What is justify-content?",opts:["Aligns items along main axis","Aligns cross axis","None","Centers items"],ans:0,topic:"CSS"},
+      {q:"What is align-items?",opts:["Aligns main axis","None","Aligns items along cross axis","Centers items"],ans:2,topic:"CSS"},
+      {q:"What is flex-wrap?",opts:["Allows flex items to wrap to new line","Wraps text","Wraps container","None"],ans:0,topic:"CSS"},
+      {q:"What is CSS Grid?",opts:["None","Flex variant","1D layout","2D layout system for rows and columns"],ans:3,topic:"CSS"},
+      {q:"What is grid-template-columns?",opts:["Grid areas","None","Defines column sizes in grid","Row sizes"],ans:2,topic:"CSS"},
+      {q:"What is grid-gap?",opts:["Grid padding","Grid margin","Space between grid items","None"],ans:2,topic:"CSS"},
+      {q:"What is grid-column-span?",opts:["None","Column gap","Makes item span multiple columns","Column count"],ans:2,topic:"CSS"},
+      {q:"What is responsive design?",opts:["Fast loading","None","Design adapting to different screen sizes","Animated design"],ans:2,topic:"Responsive"},
+      {q:"What is mobile-first design?",opts:["Mobile only","Design for mobile then scale up","None","Desktop first"],ans:1,topic:"Responsive"},
+      {q:"What is viewport meta tag?",opts:["View size","Screen tag","Controls mobile display scaling","None"],ans:2,topic:"HTML"},
+      {q:"What is the srcset attribute on img?",opts:["None","Provides different images for screen sizes","Image set","Source set class"],ans:1,topic:"HTML"},
+      {q:"What is picture element?",opts:["Picture class","Image container","Provides multiple image sources for responsive","None"],ans:2,topic:"HTML"},
+      {q:"What is rel='stylesheet'?",opts:["Relative style","Links external CSS file","None","Style relation"],ans:1,topic:"HTML"},
+      {q:"What does defer attribute on script do?",opts:["Runs script after HTML parsed","Defers loading","Pauses script","None"],ans:0,topic:"HTML"},
+      {q:"What does async attribute on script do?",opts:["Async class","Wait for DOM","Downloads and runs script immediately","None"],ans:2,topic:"HTML"},
+      {q:"What is data-* attribute?",opts:["None","Custom attribute for storing data","Data import","Data class"],ans:1,topic:"HTML"},
+      {q:"What is aria-label?",opts:["Accessibility label for screen readers","Alt text","None","Title text"],ans:0,topic:"Accessibility"},
+      {q:"What is tabindex?",opts:["Controls keyboard tab order","Tab class","Table index","None"],ans:0,topic:"Accessibility"},
+      {q:"What is role attribute in HTML?",opts:["Element role","Page role","Defines ARIA role for accessibility","None"],ans:2,topic:"Accessibility"},
+      {q:"What is alt text for images?",opts:["Image caption","Descriptive text for screen readers","None","Image title"],ans:1,topic:"Accessibility"},
+      {q:"What does HTML stand for?",opts:["High Tech Modern Language","HyperText Markup Language","Home Tool Markup Language","HyperText Modern Links"],ans:1,topic:"HTML"},
+      {q:"Which tag creates a hyperlink?",opts:["<a>","<href>","<link>","<url>"],ans:0,topic:"HTML"},
+      {q:"Which HTML tag is for largest heading?",opts:["<title>","<header>","<h6>","<h1>"],ans:3,topic:"HTML"},
+      {q:"What does CSS stand for?",opts:["Computer Style Sheets","Colorful Style Sheets","Cascading Style Sheets","Creative Style System"],ans:2,topic:"CSS"},
+      {q:"How to select element by id in CSS?",opts:["#myid","@myid","*myid",".myid"],ans:0,topic:"CSS"},
+      {q:"How to select by class in CSS?",opts:["*myclass","@myclass",".myclass","#myclass"],ans:2,topic:"CSS"},
+      {q:"Which CSS property changes text color?",opts:["foreground","text-color","color","font-color"],ans:2,topic:"CSS"},
+      {q:"What does 'display: flex' do?",opts:["Floats element","Creates flex container","None","Hides element"],ans:1,topic:"CSS"},
+      {q:"What is JavaScript used for?",opts:["Styling","Database","Interactivity","Structure"],ans:2,topic:"JavaScript"},
+      {q:"How to declare variable in modern JS?",opts:["let or const","variable x","dim x","var only"],ans:0,topic:"JavaScript"},
+      {q:"What does DOM stand for?",opts:["None","Document Object Model","Data Object Model","Dynamic Object Model"],ans:1,topic:"JavaScript"},
+      {q:"How to select element by id in JS?",opts:["getById()","findId()","getElementById()","selectId()"],ans:2,topic:"JavaScript"},
+      {q:"What does console.log() do?",opts:["Creates log file","Alerts user","None","Prints to browser console"],ans:3,topic:"JavaScript"},
+      {q:"What is an event listener?",opts:["Variable","None","Loop","Function responding to user events"],ans:3,topic:"Events"},
     ],
     intermediate:[
-      {q:"What is the CSS box model?",opts:["Box shape","Margin + Border + Padding + Content","Color model","None"],ans:1,topic:"CSS"},
-      {q:"What is CSS specificity?",opts:["Animation speed","Rules for which CSS rule wins when multiple apply","Color depth","None"],ans:1,topic:"CSS"},
-      {q:"What is CSS position: absolute?",opts:["Relative to normal flow","Positioned relative to nearest positioned ancestor","Fixed to viewport","None"],ans:1,topic:"CSS"},
-      {q:"What is 'const' vs 'let' in JavaScript?",opts:["Same","const cannot be reassigned, let can","let cannot be reassigned","None"],ans:1,topic:"JavaScript"},
-      {q:"What is a closure in JavaScript?",opts:["Class method","Function that remembers its outer scope even after execution","Loop","None"],ans:1,topic:"JavaScript"},
-      {q:"What is event bubbling?",opts:["Creating events","Events propagating from child to parent elements","None","Blocking events"],ans:1,topic:"Events"},
-      {q:"What does 'preventDefault()' do?",opts:["Stops event","Prevents default browser behavior (e.g. form submit)","Creates event","None"],ans:1,topic:"Events"},
-      {q:"What is a Promise in JavaScript?",opts:["Variable","Object representing future value of async operation","Loop","None"],ans:1,topic:"Async"},
-      {q:"What does async/await do?",opts:["Makes code slower","Syntactic sugar for handling Promises cleanly","Creates threads","None"],ans:1,topic:"Async"},
-      {q:"What is localStorage?",opts:["Server storage","Browser key-value storage persisting across sessions","Cookie","Session storage"],ans:1,topic:"Web APIs"},
-      {q:"What is JSON?",opts:["JavaScript Object Notation — lightweight data format","Java module","None","Network protocol"],ans:0,topic:"Data"},
-      {q:"What does fetch() do in JavaScript?",opts:["Fetches DOM","Makes HTTP requests to APIs","Loops over array","None"],ans:1,topic:"Async"},
-      {q:"What is a React component?",opts:["CSS class","Reusable UI building block","Database","None"],ans:1,topic:"React"},
-      {q:"What is useState in React?",opts:["Route hook","Hook for managing component state","API hook","None"],ans:1,topic:"React"},
-      {q:"What is useEffect in React?",opts:["State hook","Runs side effects after render (API calls, subscriptions)","Style hook","None"],ans:1,topic:"React"},
-      {q:"What are props in React?",opts:["State variables","Read-only data passed from parent to child","CSS properties","None"],ans:1,topic:"React"},
-      {q:"What is Flexbox used for?",opts:["Animations","1D layout (row or column) for arranging items","Database","None"],ans:1,topic:"CSS"},
-      {q:"What is CSS Grid?",opts:["Table replacement","2D layout system for rows and columns","Flex alternative only","None"],ans:1,topic:"CSS"},
-      {q:"What is responsive design?",opts:["Fast loading","Design that adapts to different screen sizes","Animated design","None"],ans:1,topic:"Responsive"},
-      {q:"What is CORS?",opts:["Code Origin Resource System","Cross-Origin Resource Sharing — browser security policy","None","Custom Origin"],ans:1,topic:"Web Security"},
+      {q:"What is the CSS box model?",opts:["Color model","Margin + Border + Padding + Content","Box shape","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS specificity?",opts:["Color depth","None","Animation speed","Rules for which CSS wins when multiple apply"],ans:3,topic:"CSS"},
+      {q:"Difference between == and === in JavaScript?",opts:["=== checks value and type, == only value","=== is slower","None","No difference"],ans:0,topic:"JavaScript"},
+      {q:"What is 'undefined' vs 'null' in JS?",opts:["null is error","undefined: not assigned, null: intentionally empty","None","Same thing"],ans:1,topic:"JavaScript"},
+      {q:"What is hoisting in JavaScript?",opts:["Declarations moved to top of scope","Variable copying","None","Code lifting"],ans:0,topic:"JavaScript"},
+      {q:"What is 'use strict'?",opts:["Strict class","None","Strict import","Enables strict mode — catches more errors"],ans:3,topic:"JavaScript"},
+      {q:"What is event bubbling?",opts:["Events propagating from child to parent","Creating events","Blocking events","None"],ans:0,topic:"Events"},
+      {q:"What is event capturing?",opts:["Event stop","Events propagating from parent to child","None","Capture class"],ans:1,topic:"Events"},
+      {q:"What does stopPropagation() do?",opts:["Stops event","None","Stops event from bubbling/capturing","Removes event"],ans:2,topic:"Events"},
+      {q:"What does preventDefault() do?",opts:["None","Stops event","Prevents default browser behavior","Creates event"],ans:2,topic:"Events"},
+      {q:"What is a Promise in JavaScript?",opts:["None","Loop","Object representing future async value","Variable"],ans:2,topic:"Async"},
+      {q:"What are Promise states?",opts:["None","Pending, Fulfilled, Rejected","Active, Done, Error","Start, End, Error"],ans:1,topic:"Async"},
+      {q:"What does async/await do?",opts:["Creates threads","Syntactic sugar for cleaner Promise handling","Makes synchronous","None"],ans:1,topic:"Async"},
+      {q:"What is the event loop in JS?",opts:["While loop","For loop","DOM loop","Mechanism handling async code via call stack and queue"],ans:3,topic:"JavaScript"},
+      {q:"What is the call stack?",opts:["Async queue","None","Stack of currently executing functions","Function list"],ans:2,topic:"JavaScript"},
+      {q:"What is the task queue?",opts:["Microtask","None","Async stack","Queue of callback functions to execute"],ans:3,topic:"JavaScript"},
+      {q:"What are microtasks?",opts:["Small tasks","None","Promise callbacks — run before macrotasks","Micro events"],ans:2,topic:"JavaScript"},
+      {q:"What is JSON?",opts:["JavaScript Object Notation — data interchange format","JS object","None","Java module"],ans:0,topic:"Data"},
+      {q:"What is JSON.stringify()?",opts:["Creates JSON file","Parses JSON","None","Converts JS object to JSON string"],ans:3,topic:"Data"},
+      {q:"What is JSON.parse()?",opts:["Creates JSON","None","Stringifies","Converts JSON string to JS object"],ans:3,topic:"Data"},
+      {q:"What is localStorage?",opts:["Browser key-value storage persisting across sessions","Cookie","Server storage","Session storage"],ans:0,topic:"Web APIs"},
+      {q:"What is sessionStorage?",opts:["Server storage","Local storage","Cookie","Browser key-value storage for single session"],ans:3,topic:"Web APIs"},
+      {q:"What is a cookie?",opts:["Small data stored by browser per domain","Cache","Session data","Local storage"],ans:0,topic:"Web APIs"},
+      {q:"What is the Fetch API?",opts:["None","Modern way to make HTTP requests","Get URL","Fetch data"],ans:1,topic:"Async"},
+      {q:"What is CORS?",opts:["Cross-origin class","None","Cross-Origin Resource Sharing — browser security policy","Custom Origin"],ans:2,topic:"Web Security"},
+      {q:"What is XHR?",opts:["XML Handler","XMLHttpRequest — older way to make HTTP requests","X Header Request","None"],ans:1,topic:"Async"},
+      {q:"What is REST API?",opts:["Architectural style for HTTP APIs using methods","API type","Rest service","None"],ans:0,topic:"APIs"},
+      {q:"What HTTP method creates a resource?",opts:["PUT","DELETE","GET","POST"],ans:3,topic:"APIs"},
+      {q:"What HTTP method retrieves a resource?",opts:["POST","DELETE","GET","PUT"],ans:2,topic:"APIs"},
+      {q:"What HTTP method updates a resource?",opts:["GET","DELETE","PUT or PATCH","POST"],ans:2,topic:"APIs"},
+      {q:"What HTTP method deletes a resource?",opts:["DELETE","GET","PUT","POST"],ans:0,topic:"APIs"},
+      {q:"What is HTTP status 200?",opts:["OK — success","Server error","Not found","Created"],ans:0,topic:"HTTP"},
+      {q:"What is HTTP status 201?",opts:["OK","Created successfully","Not found","Server error"],ans:1,topic:"HTTP"},
+      {q:"What is HTTP status 404?",opts:["Server error","Forbidden","Not found","OK"],ans:2,topic:"HTTP"},
+      {q:"What is HTTP status 500?",opts:["OK","Forbidden","Not found","Internal server error"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 401?",opts:["Forbidden","Not found","OK","Unauthorized"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 403?",opts:["Forbidden","OK","Unauthorized","Not found"],ans:0,topic:"HTTP"},
+      {q:"What is a React component?",opts:["Database table","Reusable UI building block","CSS class","None"],ans:1,topic:"React"},
+      {q:"What is JSX?",opts:["JavaScript XML — JS with HTML-like syntax","Java Syntax","None","JSON XML"],ans:0,topic:"React"},
+      {q:"What is useState in React?",opts:["None","Route hook","API hook","Hook for managing component state"],ans:3,topic:"React"},
+      {q:"What is useEffect in React?",opts:["None","State hook","Runs side effects after render","Style hook"],ans:2,topic:"React"},
+      {q:"What are props in React?",opts:["Read-only data passed from parent to child","CSS properties","State variables","None"],ans:0,topic:"React"},
+      {q:"What is the Virtual DOM?",opts:["Database","In-memory DOM React diffs efficiently","Actual DOM","None"],ans:1,topic:"React"},
+      {q:"What is reconciliation in React?",opts:["Comparing VDOM and updating real DOM","State management","Routing","None"],ans:0,topic:"React"},
+      {q:"What is key prop in lists?",opts:["Unique identifier helping React track list items","Style key","None","Data key"],ans:0,topic:"React"},
+      {q:"What is controlled component?",opts:["None","Uncontrolled","DOM-managed","Form input controlled by React state"],ans:3,topic:"React"},
+      {q:"What is uncontrolled component?",opts:["State-managed","None","Controlled","Form input managed by DOM ref"],ans:3,topic:"React"},
+      {q:"What is useRef in React?",opts:["None","Returns mutable ref object persisting across renders","State hook","DOM only"],ans:1,topic:"React"},
+      {q:"What is useCallback?",opts:["None","Router hook","State hook","Memoizes function reference"],ans:3,topic:"React"},
+      {q:"What is useMemo?",opts:["Memoizes computed value","None","State hook","Router hook"],ans:0,topic:"React"},
+      {q:"What is useContext?",opts:["Accesses context value without prop drilling","None","Route hook","State hook"],ans:0,topic:"React"},
+      {q:"What is Context API?",opts:["None","React way to pass data without prop drilling","CSS variables","Router"],ans:1,topic:"React"},
+      {q:"What is React.memo?",opts:["Memoizes component to skip unnecessary re-renders","Memory hook","None","Cache hook"],ans:0,topic:"React"},
+      {q:"What is createPortal?",opts:["Portal class","Renders children into different DOM node","None","Modal class"],ans:1,topic:"React"},
+      {q:"What is React.lazy?",opts:["None","Lazy loading","Lazy hook","Dynamically imports component for code splitting"],ans:3,topic:"React"},
+      {q:"What is Suspense?",opts:["Loading class","Shows fallback while lazy component loads","None","Wait class"],ans:1,topic:"React"},
+      {q:"What is React Router?",opts:["Navigation","Router class","None","Library for client-side routing"],ans:3,topic:"React"},
+      {q:"What is the CSS box model?",opts:["Color model","Margin + Border + Padding + Content","Box shape","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS specificity?",opts:["Color depth","None","Animation speed","Rules for which CSS wins when multiple apply"],ans:3,topic:"CSS"},
+      {q:"Difference between == and === in JavaScript?",opts:["=== checks value and type, == only value","=== is slower","None","No difference"],ans:0,topic:"JavaScript"},
+      {q:"What is 'undefined' vs 'null' in JS?",opts:["null is error","undefined: not assigned, null: intentionally empty","None","Same thing"],ans:1,topic:"JavaScript"},
+      {q:"What is hoisting in JavaScript?",opts:["Declarations moved to top of scope","Variable copying","None","Code lifting"],ans:0,topic:"JavaScript"},
+      {q:"What is 'use strict'?",opts:["Strict class","None","Strict import","Enables strict mode — catches more errors"],ans:3,topic:"JavaScript"},
+      {q:"What is event bubbling?",opts:["Events propagating from child to parent","Creating events","Blocking events","None"],ans:0,topic:"Events"},
+      {q:"What is event capturing?",opts:["Event stop","Events propagating from parent to child","None","Capture class"],ans:1,topic:"Events"},
+      {q:"What does stopPropagation() do?",opts:["Stops event","None","Stops event from bubbling/capturing","Removes event"],ans:2,topic:"Events"},
+      {q:"What does preventDefault() do?",opts:["None","Stops event","Prevents default browser behavior","Creates event"],ans:2,topic:"Events"},
+      {q:"What is a Promise in JavaScript?",opts:["None","Loop","Object representing future async value","Variable"],ans:2,topic:"Async"},
+      {q:"What are Promise states?",opts:["None","Pending, Fulfilled, Rejected","Active, Done, Error","Start, End, Error"],ans:1,topic:"Async"},
+      {q:"What does async/await do?",opts:["Creates threads","Syntactic sugar for cleaner Promise handling","Makes synchronous","None"],ans:1,topic:"Async"},
+      {q:"What is the event loop in JS?",opts:["While loop","For loop","DOM loop","Mechanism handling async code via call stack and queue"],ans:3,topic:"JavaScript"},
+      {q:"What is the call stack?",opts:["Async queue","None","Stack of currently executing functions","Function list"],ans:2,topic:"JavaScript"},
+      {q:"What is the task queue?",opts:["Microtask","None","Async stack","Queue of callback functions to execute"],ans:3,topic:"JavaScript"},
+      {q:"What are microtasks?",opts:["Small tasks","None","Promise callbacks — run before macrotasks","Micro events"],ans:2,topic:"JavaScript"},
+      {q:"What is JSON?",opts:["JavaScript Object Notation — data interchange format","JS object","None","Java module"],ans:0,topic:"Data"},
+      {q:"What is JSON.stringify()?",opts:["Creates JSON file","Parses JSON","None","Converts JS object to JSON string"],ans:3,topic:"Data"},
+      {q:"What is JSON.parse()?",opts:["Creates JSON","None","Stringifies","Converts JSON string to JS object"],ans:3,topic:"Data"},
+      {q:"What is localStorage?",opts:["Browser key-value storage persisting across sessions","Cookie","Server storage","Session storage"],ans:0,topic:"Web APIs"},
+      {q:"What is sessionStorage?",opts:["Server storage","Local storage","Cookie","Browser key-value storage for single session"],ans:3,topic:"Web APIs"},
+      {q:"What is a cookie?",opts:["Small data stored by browser per domain","Cache","Session data","Local storage"],ans:0,topic:"Web APIs"},
+      {q:"What is the Fetch API?",opts:["None","Modern way to make HTTP requests","Get URL","Fetch data"],ans:1,topic:"Async"},
+      {q:"What is CORS?",opts:["Cross-origin class","None","Cross-Origin Resource Sharing — browser security policy","Custom Origin"],ans:2,topic:"Web Security"},
+      {q:"What is XHR?",opts:["XML Handler","XMLHttpRequest — older way to make HTTP requests","X Header Request","None"],ans:1,topic:"Async"},
+      {q:"What is REST API?",opts:["Architectural style for HTTP APIs using methods","API type","Rest service","None"],ans:0,topic:"APIs"},
+      {q:"What HTTP method creates a resource?",opts:["PUT","DELETE","GET","POST"],ans:3,topic:"APIs"},
+      {q:"What HTTP method retrieves a resource?",opts:["POST","DELETE","GET","PUT"],ans:2,topic:"APIs"},
+      {q:"What HTTP method updates a resource?",opts:["GET","DELETE","PUT or PATCH","POST"],ans:2,topic:"APIs"},
+      {q:"What HTTP method deletes a resource?",opts:["DELETE","GET","PUT","POST"],ans:0,topic:"APIs"},
+      {q:"What is HTTP status 200?",opts:["OK — success","Server error","Not found","Created"],ans:0,topic:"HTTP"},
+      {q:"What is HTTP status 201?",opts:["OK","Created successfully","Not found","Server error"],ans:1,topic:"HTTP"},
+      {q:"What is HTTP status 404?",opts:["Server error","Forbidden","Not found","OK"],ans:2,topic:"HTTP"},
+      {q:"What is HTTP status 500?",opts:["OK","Forbidden","Not found","Internal server error"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 401?",opts:["Forbidden","Not found","OK","Unauthorized"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 403?",opts:["Forbidden","OK","Unauthorized","Not found"],ans:0,topic:"HTTP"},
+      {q:"What is a React component?",opts:["Database table","Reusable UI building block","CSS class","None"],ans:1,topic:"React"},
+      {q:"What is JSX?",opts:["JavaScript XML — JS with HTML-like syntax","Java Syntax","None","JSON XML"],ans:0,topic:"React"},
+      {q:"What is useState in React?",opts:["None","Route hook","API hook","Hook for managing component state"],ans:3,topic:"React"},
+      {q:"What is useEffect in React?",opts:["None","State hook","Runs side effects after render","Style hook"],ans:2,topic:"React"},
+      {q:"What are props in React?",opts:["Read-only data passed from parent to child","CSS properties","State variables","None"],ans:0,topic:"React"},
+      {q:"What is the Virtual DOM?",opts:["Database","In-memory DOM React diffs efficiently","Actual DOM","None"],ans:1,topic:"React"},
+      {q:"What is reconciliation in React?",opts:["Comparing VDOM and updating real DOM","State management","Routing","None"],ans:0,topic:"React"},
+      {q:"What is key prop in lists?",opts:["Unique identifier helping React track list items","Style key","None","Data key"],ans:0,topic:"React"},
+      {q:"What is controlled component?",opts:["None","Uncontrolled","DOM-managed","Form input controlled by React state"],ans:3,topic:"React"},
+      {q:"What is uncontrolled component?",opts:["State-managed","None","Controlled","Form input managed by DOM ref"],ans:3,topic:"React"},
+      {q:"What is useRef in React?",opts:["None","Returns mutable ref object persisting across renders","State hook","DOM only"],ans:1,topic:"React"},
+      {q:"What is useCallback?",opts:["None","Router hook","State hook","Memoizes function reference"],ans:3,topic:"React"},
+      {q:"What is useMemo?",opts:["Memoizes computed value","None","State hook","Router hook"],ans:0,topic:"React"},
+      {q:"What is useContext?",opts:["Accesses context value without prop drilling","None","Route hook","State hook"],ans:0,topic:"React"},
+      {q:"What is Context API?",opts:["None","React way to pass data without prop drilling","CSS variables","Router"],ans:1,topic:"React"},
+      {q:"What is React.memo?",opts:["Memoizes component to skip unnecessary re-renders","Memory hook","None","Cache hook"],ans:0,topic:"React"},
+      {q:"What is createPortal?",opts:["Portal class","Renders children into different DOM node","None","Modal class"],ans:1,topic:"React"},
+      {q:"What is React.lazy?",opts:["None","Lazy loading","Lazy hook","Dynamically imports component for code splitting"],ans:3,topic:"React"},
+      {q:"What is Suspense?",opts:["Loading class","Shows fallback while lazy component loads","None","Wait class"],ans:1,topic:"React"},
+      {q:"What is React Router?",opts:["Navigation","Router class","None","Library for client-side routing"],ans:3,topic:"React"},
+      {q:"What is the CSS box model?",opts:["Color model","Margin + Border + Padding + Content","Box shape","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS specificity?",opts:["Color depth","None","Animation speed","Rules for which CSS wins when multiple apply"],ans:3,topic:"CSS"},
+      {q:"Difference between == and === in JavaScript?",opts:["=== checks value and type, == only value","=== is slower","None","No difference"],ans:0,topic:"JavaScript"},
+      {q:"What is 'undefined' vs 'null' in JS?",opts:["null is error","undefined: not assigned, null: intentionally empty","None","Same thing"],ans:1,topic:"JavaScript"},
+      {q:"What is hoisting in JavaScript?",opts:["Declarations moved to top of scope","Variable copying","None","Code lifting"],ans:0,topic:"JavaScript"},
+      {q:"What is 'use strict'?",opts:["Strict class","None","Strict import","Enables strict mode — catches more errors"],ans:3,topic:"JavaScript"},
+      {q:"What is event bubbling?",opts:["Events propagating from child to parent","Creating events","Blocking events","None"],ans:0,topic:"Events"},
+      {q:"What is event capturing?",opts:["Event stop","Events propagating from parent to child","None","Capture class"],ans:1,topic:"Events"},
+      {q:"What does stopPropagation() do?",opts:["Stops event","None","Stops event from bubbling/capturing","Removes event"],ans:2,topic:"Events"},
+      {q:"What does preventDefault() do?",opts:["None","Stops event","Prevents default browser behavior","Creates event"],ans:2,topic:"Events"},
+      {q:"What is a Promise in JavaScript?",opts:["None","Loop","Object representing future async value","Variable"],ans:2,topic:"Async"},
+      {q:"What are Promise states?",opts:["None","Pending, Fulfilled, Rejected","Active, Done, Error","Start, End, Error"],ans:1,topic:"Async"},
+      {q:"What does async/await do?",opts:["Creates threads","Syntactic sugar for cleaner Promise handling","Makes synchronous","None"],ans:1,topic:"Async"},
+      {q:"What is the event loop in JS?",opts:["While loop","For loop","DOM loop","Mechanism handling async code via call stack and queue"],ans:3,topic:"JavaScript"},
+      {q:"What is the call stack?",opts:["Async queue","None","Stack of currently executing functions","Function list"],ans:2,topic:"JavaScript"},
+      {q:"What is the task queue?",opts:["Microtask","None","Async stack","Queue of callback functions to execute"],ans:3,topic:"JavaScript"},
+      {q:"What are microtasks?",opts:["Small tasks","None","Promise callbacks — run before macrotasks","Micro events"],ans:2,topic:"JavaScript"},
+      {q:"What is JSON?",opts:["JavaScript Object Notation — data interchange format","JS object","None","Java module"],ans:0,topic:"Data"},
+      {q:"What is JSON.stringify()?",opts:["Creates JSON file","Parses JSON","None","Converts JS object to JSON string"],ans:3,topic:"Data"},
+      {q:"What is JSON.parse()?",opts:["Creates JSON","None","Stringifies","Converts JSON string to JS object"],ans:3,topic:"Data"},
+      {q:"What is localStorage?",opts:["Browser key-value storage persisting across sessions","Cookie","Server storage","Session storage"],ans:0,topic:"Web APIs"},
+      {q:"What is sessionStorage?",opts:["Server storage","Local storage","Cookie","Browser key-value storage for single session"],ans:3,topic:"Web APIs"},
+      {q:"What is a cookie?",opts:["Small data stored by browser per domain","Cache","Session data","Local storage"],ans:0,topic:"Web APIs"},
+      {q:"What is the Fetch API?",opts:["None","Modern way to make HTTP requests","Get URL","Fetch data"],ans:1,topic:"Async"},
+      {q:"What is CORS?",opts:["Cross-origin class","None","Cross-Origin Resource Sharing — browser security policy","Custom Origin"],ans:2,topic:"Web Security"},
+      {q:"What is XHR?",opts:["XML Handler","XMLHttpRequest — older way to make HTTP requests","X Header Request","None"],ans:1,topic:"Async"},
+      {q:"What is REST API?",opts:["Architectural style for HTTP APIs using methods","API type","Rest service","None"],ans:0,topic:"APIs"},
+      {q:"What HTTP method creates a resource?",opts:["PUT","DELETE","GET","POST"],ans:3,topic:"APIs"},
+      {q:"What HTTP method retrieves a resource?",opts:["POST","DELETE","GET","PUT"],ans:2,topic:"APIs"},
+      {q:"What HTTP method updates a resource?",opts:["GET","DELETE","PUT or PATCH","POST"],ans:2,topic:"APIs"},
+      {q:"What HTTP method deletes a resource?",opts:["DELETE","GET","PUT","POST"],ans:0,topic:"APIs"},
+      {q:"What is HTTP status 200?",opts:["OK — success","Server error","Not found","Created"],ans:0,topic:"HTTP"},
+      {q:"What is HTTP status 201?",opts:["OK","Created successfully","Not found","Server error"],ans:1,topic:"HTTP"},
+      {q:"What is HTTP status 404?",opts:["Server error","Forbidden","Not found","OK"],ans:2,topic:"HTTP"},
+      {q:"What is HTTP status 500?",opts:["OK","Forbidden","Not found","Internal server error"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 401?",opts:["Forbidden","Not found","OK","Unauthorized"],ans:3,topic:"HTTP"},
+      {q:"What is HTTP status 403?",opts:["Forbidden","OK","Unauthorized","Not found"],ans:0,topic:"HTTP"},
+      {q:"What is a React component?",opts:["Database table","Reusable UI building block","CSS class","None"],ans:1,topic:"React"},
+      {q:"What is JSX?",opts:["JavaScript XML — JS with HTML-like syntax","Java Syntax","None","JSON XML"],ans:0,topic:"React"},
+      {q:"What is useState in React?",opts:["None","Route hook","API hook","Hook for managing component state"],ans:3,topic:"React"},
+      {q:"What is useEffect in React?",opts:["None","State hook","Runs side effects after render","Style hook"],ans:2,topic:"React"},
+      {q:"What are props in React?",opts:["Read-only data passed from parent to child","CSS properties","State variables","None"],ans:0,topic:"React"},
+      {q:"What is the Virtual DOM?",opts:["Database","In-memory DOM React diffs efficiently","Actual DOM","None"],ans:1,topic:"React"},
+      {q:"What is reconciliation in React?",opts:["Comparing VDOM and updating real DOM","State management","Routing","None"],ans:0,topic:"React"},
+      {q:"What is key prop in lists?",opts:["Unique identifier helping React track list items","Style key","None","Data key"],ans:0,topic:"React"},
+      {q:"What is controlled component?",opts:["None","Uncontrolled","DOM-managed","Form input controlled by React state"],ans:3,topic:"React"},
+      {q:"What is uncontrolled component?",opts:["State-managed","None","Controlled","Form input managed by DOM ref"],ans:3,topic:"React"},
+      {q:"What is useRef in React?",opts:["None","Returns mutable ref object persisting across renders","State hook","DOM only"],ans:1,topic:"React"},
+      {q:"What is useCallback?",opts:["None","Router hook","State hook","Memoizes function reference"],ans:3,topic:"React"},
+      {q:"What is useMemo?",opts:["Memoizes computed value","None","State hook","Router hook"],ans:0,topic:"React"},
+      {q:"What is useContext?",opts:["Accesses context value without prop drilling","None","Route hook","State hook"],ans:0,topic:"React"},
+      {q:"What is Context API?",opts:["None","React way to pass data without prop drilling","CSS variables","Router"],ans:1,topic:"React"},
+      {q:"What is React.memo?",opts:["Memoizes component to skip unnecessary re-renders","Memory hook","None","Cache hook"],ans:0,topic:"React"},
+      {q:"What is createPortal?",opts:["Portal class","Renders children into different DOM node","None","Modal class"],ans:1,topic:"React"},
+      {q:"What is React.lazy?",opts:["None","Lazy loading","Lazy hook","Dynamically imports component for code splitting"],ans:3,topic:"React"},
+      {q:"What is Suspense?",opts:["Loading class","Shows fallback while lazy component loads","None","Wait class"],ans:1,topic:"React"},
+      {q:"What is React Router?",opts:["Navigation","Router class","None","Library for client-side routing"],ans:3,topic:"React"},
+      {q:"What is the CSS box model?",opts:["Color model","Margin + Border + Padding + Content","Box shape","None"],ans:1,topic:"CSS"},
+      {q:"What is CSS specificity?",opts:["Color depth","None","Animation speed","Rules for which CSS wins when multiple apply"],ans:3,topic:"CSS"},
+      {q:"Difference between == and === in JavaScript?",opts:["=== checks value and type, == only value","=== is slower","None","No difference"],ans:0,topic:"JavaScript"},
+      {q:"What is 'undefined' vs 'null' in JS?",opts:["null is error","undefined: not assigned, null: intentionally empty","None","Same thing"],ans:1,topic:"JavaScript"},
+      {q:"What is hoisting in JavaScript?",opts:["Declarations moved to top of scope","Variable copying","None","Code lifting"],ans:0,topic:"JavaScript"},
+      {q:"What is 'use strict'?",opts:["Strict class","None","Strict import","Enables strict mode — catches more errors"],ans:3,topic:"JavaScript"},
+      {q:"What is event bubbling?",opts:["Events propagating from child to parent","Creating events","Blocking events","None"],ans:0,topic:"Events"},
+      {q:"What is event capturing?",opts:["Event stop","Events propagating from parent to child","None","Capture class"],ans:1,topic:"Events"},
+      {q:"What does stopPropagation() do?",opts:["Stops event","None","Stops event from bubbling/capturing","Removes event"],ans:2,topic:"Events"},
+      {q:"What does preventDefault() do?",opts:["None","Stops event","Prevents default browser behavior","Creates event"],ans:2,topic:"Events"},
+      {q:"What is a Promise in JavaScript?",opts:["None","Loop","Object representing future async value","Variable"],ans:2,topic:"Async"},
+      {q:"What are Promise states?",opts:["None","Pending, Fulfilled, Rejected","Active, Done, Error","Start, End, Error"],ans:1,topic:"Async"},
+      {q:"What does async/await do?",opts:["Creates threads","Syntactic sugar for cleaner Promise handling","Makes synchronous","None"],ans:1,topic:"Async"},
+      {q:"What is the event loop in JS?",opts:["While loop","For loop","DOM loop","Mechanism handling async code via call stack and queue"],ans:3,topic:"JavaScript"},
+      {q:"What is the call stack?",opts:["Async queue","None","Stack of currently executing functions","Function list"],ans:2,topic:"JavaScript"},
+      {q:"What is the task queue?",opts:["Microtask","None","Async stack","Queue of callback functions to execute"],ans:3,topic:"JavaScript"},
+      {q:"What are microtasks?",opts:["Small tasks","None","Promise callbacks — run before macrotasks","Micro events"],ans:2,topic:"JavaScript"},
+      {q:"What is JSON?",opts:["JavaScript Object Notation — data interchange format","JS object","None","Java module"],ans:0,topic:"Data"},
+      {q:"What is JSON.stringify()?",opts:["Creates JSON file","Parses JSON","None","Converts JS object to JSON string"],ans:3,topic:"Data"},
+      {q:"What is JSON.parse()?",opts:["Creates JSON","None","Stringifies","Converts JSON string to JS object"],ans:3,topic:"Data"},
+      {q:"What is localStorage?",opts:["Browser key-value storage persisting across sessions","Cookie","Server storage","Session storage"],ans:0,topic:"Web APIs"},
+      {q:"What is sessionStorage?",opts:["Server storage","Local storage","Cookie","Browser key-value storage for single session"],ans:3,topic:"Web APIs"},
+      {q:"What is a cookie?",opts:["Small data stored by browser per domain","Cache","Session data","Local storage"],ans:0,topic:"Web APIs"},
+      {q:"What is the Fetch API?",opts:["None","Modern way to make HTTP requests","Get URL","Fetch data"],ans:1,topic:"Async"},
+      {q:"What is CORS?",opts:["Cross-origin class","None","Cross-Origin Resource Sharing — browser security policy","Custom Origin"],ans:2,topic:"Web Security"},
+      {q:"What is XHR?",opts:["XML Handler","XMLHttpRequest — older way to make HTTP requests","X Header Request","None"],ans:1,topic:"Async"},
+      {q:"What is REST API?",opts:["Architectural style for HTTP APIs using methods","API type","Rest service","None"],ans:0,topic:"APIs"},
+      {q:"What HTTP method creates a resource?",opts:["PUT","DELETE","GET","POST"],ans:3,topic:"APIs"},
+      {q:"What HTTP method retrieves a resource?",opts:["POST","DELETE","GET","PUT"],ans:2,topic:"APIs"},
     ],
     advanced:[
-      {q:"What is the Virtual DOM in React?",opts:["Actual DOM","In-memory DOM representation React uses to diff and update efficiently","Database","None"],ans:1,topic:"React"},
-      {q:"What is React reconciliation?",opts:["State management","Process of comparing Virtual DOM trees and updating real DOM","Routing","None"],ans:1,topic:"React"},
-      {q:"What is useCallback hook?",opts:["State hook","Memoizes function reference to prevent unnecessary re-renders","Router hook","None"],ans:1,topic:"React"},
-      {q:"What is useMemo hook?",opts:["Stores state","Memoizes computed value to avoid expensive recalculation","Router","None"],ans:1,topic:"React"},
-      {q:"What is code splitting in React?",opts:["Splitting CSS files","Lazy loading parts of app to reduce initial bundle size","None","Splitting components"],ans:1,topic:"Performance"},
-      {q:"What is a Service Worker?",opts:["Backend worker","Script running in background enabling offline/PWA features","Database","None"],ans:1,topic:"PWA"},
-      {q:"What is WebSocket?",opts:["HTTP request","Full-duplex real-time communication protocol","Database","None"],ans:1,topic:"Real-time"},
-      {q:"What is Tree Shaking?",opts:["CSS technique","Removing unused code from bundle during build","DOM manipulation","None"],ans:1,topic:"Build"},
-      {q:"What is SSR (Server Side Rendering)?",opts:["CSS rendering","HTML generated on server before sending to client","None","Client rendering"],ans:1,topic:"Architecture"},
-      {q:"What is CSR vs SSR?",opts:["Same","CSR renders in browser, SSR renders on server — SSR better for SEO","CSR is server","None"],ans:1,topic:"Architecture"},
-      {q:"What is hydration in Next.js?",opts:["Adding water","Attaching React event handlers to server-rendered HTML","SSR only","None"],ans:1,topic:"Next.js"},
-      {q:"What is a Web Worker?",opts:["Backend API","Runs JavaScript in background thread without blocking UI","Database","None"],ans:1,topic:"Performance"},
-      {q:"What is the event loop in JavaScript?",opts:["For loop","Mechanism handling async code — call stack + task queue","None","DOM loop"],ans:1,topic:"JavaScript Engine"},
-      {q:"What is debouncing?",opts:["Error handling","Delaying function execution until user stops triggering it","None","Caching"],ans:1,topic:"Performance"},
-      {q:"What is throttling?",opts:["Caching","Limiting function call rate to at most once per interval","None","Error handling"],ans:1,topic:"Performance"},
-      {q:"What is a Higher Order Component (HOC)?",opts:["CSS component","Function taking component and returning enhanced component","None","Hook"],ans:1,topic:"React Patterns"},
-      {q:"What is Context API?",opts:["CSS variables","React way to pass data through component tree without prop drilling","None","Router"],ans:1,topic:"React"},
-      {q:"What is Webpack?",opts:["Testing tool","Module bundler that bundles JS/CSS/assets for browser","Database","None"],ans:1,topic:"Build Tools"},
-      {q:"What is memoization in React context?",opts:["Memory error","Caching component render to skip re-render if props unchanged","None","State"],ans:1,topic:"Performance"},
-      {q:"What is the difference between controlled and uncontrolled components?",opts:["Same","Controlled: React manages state. Uncontrolled: DOM manages state","Uncontrolled: React manages","None"],ans:1,topic:"React"},
+      {q:"What is Server-Side Rendering (SSR)?",opts:["Client rendering","Static rendering","None","HTML generated on server before sending to client"],ans:3,topic:"Architecture"},
+      {q:"What is Static Site Generation (SSG)?",opts:["HTML pre-generated at build time","None","Server rendering","Dynamic rendering"],ans:0,topic:"Architecture"},
+      {q:"What is ISR in Next.js?",opts:["None","Incremental Static Regeneration — rebuild pages on demand","Immediate Static","Incremental Server"],ans:1,topic:"Next.js"},
+      {q:"What is hydration?",opts:["Attaching React events to server-rendered HTML","None","SSR only","Adding water"],ans:0,topic:"Next.js"},
+      {q:"What is a Service Worker?",opts:["Background script enabling offline/PWA features","None","Backend worker","Database"],ans:0,topic:"PWA"},
+      {q:"What is a PWA?",opts:["Progressive Web App","None","None","Web app with native app-like capabilities"],ans:3,topic:"PWA"},
+      {q:"What is the Cache API?",opts:["Service worker API for caching requests","None","Browser cache","HTTP cache"],ans:0,topic:"PWA"},
+      {q:"What is WebSocket?",opts:["HTTP request","None","Full-duplex real-time communication protocol","Database"],ans:2,topic:"Real-time"},
+      {q:"What is Server-Sent Events?",opts:["WebSocket","None","HTTP stream","One-way server to client real-time stream"],ans:3,topic:"Real-time"},
+      {q:"What is WebRTC?",opts:["Peer-to-peer browser communication for video/audio","Web RTC class","Web request","None"],ans:0,topic:"Real-time"},
+      {q:"What is Tree Shaking?",opts:["None","DOM manipulation","CSS technique","Removing unused code from bundle"],ans:3,topic:"Build"},
+      {q:"What is code splitting?",opts:["Lazy loading","Code separation","Splitting bundle into smaller chunks loaded on demand","None"],ans:2,topic:"Build"},
+      {q:"What is lazy loading?",opts:["Eager loading","Pre-loading","Loading resources only when needed","None"],ans:2,topic:"Performance"},
+      {q:"What is debouncing?",opts:["Rate limiting","None","Delaying function until user stops triggering it","Throttling"],ans:2,topic:"Performance"},
+      {q:"What is throttling?",opts:["Limiting function call rate to once per interval","None","Caching","Debouncing"],ans:0,topic:"Performance"},
+      {q:"What is memoization in React?",opts:["None","State management","Memory","Caching render to skip unnecessary re-renders"],ans:3,topic:"Performance"},
+      {q:"What is virtualization in UI?",opts:["Virtual DOM","Rendering only visible list items","None","DOM caching"],ans:1,topic:"Performance"},
+      {q:"What is a Higher Order Component?",opts:["None","Function taking component returning enhanced component","CSS component","Hook"],ans:1,topic:"React Patterns"},
+      {q:"What is render props pattern?",opts:["Render function","Sharing code via prop that is a function","None","Prop drilling"],ans:1,topic:"React Patterns"},
+      {q:"What is compound component pattern?",opts:["Compound class","Multi-component","None","Components sharing implicit state"],ans:3,topic:"React Patterns"},
+      {q:"What is Webpack?",opts:["Database","Module bundler for JS/CSS/assets","None","Testing tool"],ans:1,topic:"Build Tools"},
+      {q:"What is Vite?",opts:["Fast build tool using native ES modules","Vite class","None","Build server"],ans:0,topic:"Build Tools"},
+      {q:"What is Babel?",opts:["Build tool","JavaScript transpiler for compatibility","Linter","None"],ans:1,topic:"Build Tools"},
+      {q:"What is ESLint?",opts:["HTML linter","CSS linter","None","JavaScript linting tool"],ans:3,topic:"Tools"},
+      {q:"What is Prettier?",opts:["Code formatter for consistent style","Linter","Bundler","None"],ans:0,topic:"Tools"},
+      {q:"What is TypeScript?",opts:["JS variant","Typed superset of JavaScript","Type checker","None"],ans:1,topic:"TypeScript"},
+      {q:"What is an interface in TypeScript?",opts:["Type alias","Defines shape of object type","None","Abstract class"],ans:1,topic:"TypeScript"},
+      {q:"What is a type alias in TypeScript?",opts:["Alternative name for type","Class","Interface","None"],ans:0,topic:"TypeScript"},
+      {q:"What is a generic in TypeScript?",opts:["None","Type parameter for reusable typed code","Template","Generic class"],ans:1,topic:"TypeScript"},
+      {q:"What is Next.js?",opts:["React extension","React framework with SSR, SSG, routing","None","Next version"],ans:1,topic:"Next.js"},
+      {q:"What is the App Router in Next.js 13+?",opts:["App class","None","Route manager","File-system routing in app/ directory"],ans:3,topic:"Next.js"},
+      {q:"What is server component in Next.js?",opts:["Server class","None","Component rendered on server with no JS sent to client","SSR component"],ans:2,topic:"Next.js"},
+      {q:"What is client component?",opts:["Server component","Component with interactivity rendered in browser","None","Static component"],ans:1,topic:"Next.js"},
+      {q:"What is middleware in Next.js?",opts:["Runs before request is processed","Express middleware","None","DB middleware"],ans:0,topic:"Next.js"},
+      {q:"What is SWR?",opts:["Suspense wrapper","None","State wrapper","React hook for data fetching with stale-while-revalidate"],ans:3,topic:"Data Fetching"},
+      {q:"What is React Query?",opts:["None","Query class","Powerful data fetching and caching library","Data class"],ans:2,topic:"Data Fetching"},
+      {q:"What is GraphQL?",opts:["Graph database","None","Graph query","Query language for APIs — request exactly what you need"],ans:3,topic:"APIs"},
+      {q:"What is REST vs GraphQL?",opts:["REST is newer","None","REST fixed endpoints, GraphQL flexible queries","Same thing"],ans:2,topic:"APIs"},
+      {q:"What is tRPC?",opts:["Type RPC","TypeScript RPC","None","End-to-end type-safe API without schema"],ans:3,topic:"APIs"},
+      {q:"What is Zustand?",opts:["None","Zustand class","State class","Lightweight state management for React"],ans:3,topic:"State Management"},
+      {q:"What is Redux?",opts:["Predictable state container with single store","None","Global class","React state"],ans:0,topic:"State Management"},
+      {q:"What is Server-Side Rendering (SSR)?",opts:["Client rendering","Static rendering","None","HTML generated on server before sending to client"],ans:3,topic:"Architecture"},
+      {q:"What is Static Site Generation (SSG)?",opts:["HTML pre-generated at build time","None","Server rendering","Dynamic rendering"],ans:0,topic:"Architecture"},
+      {q:"What is ISR in Next.js?",opts:["None","Incremental Static Regeneration — rebuild pages on demand","Immediate Static","Incremental Server"],ans:1,topic:"Next.js"},
+      {q:"What is hydration?",opts:["Attaching React events to server-rendered HTML","None","SSR only","Adding water"],ans:0,topic:"Next.js"},
+      {q:"What is a Service Worker?",opts:["Background script enabling offline/PWA features","None","Backend worker","Database"],ans:0,topic:"PWA"},
+      {q:"What is a PWA?",opts:["Progressive Web App","None","None","Web app with native app-like capabilities"],ans:3,topic:"PWA"},
+      {q:"What is the Cache API?",opts:["Service worker API for caching requests","None","Browser cache","HTTP cache"],ans:0,topic:"PWA"},
+      {q:"What is WebSocket?",opts:["HTTP request","None","Full-duplex real-time communication protocol","Database"],ans:2,topic:"Real-time"},
+      {q:"What is Server-Sent Events?",opts:["WebSocket","None","HTTP stream","One-way server to client real-time stream"],ans:3,topic:"Real-time"},
+      {q:"What is WebRTC?",opts:["Peer-to-peer browser communication for video/audio","Web RTC class","Web request","None"],ans:0,topic:"Real-time"},
+      {q:"What is Tree Shaking?",opts:["None","DOM manipulation","CSS technique","Removing unused code from bundle"],ans:3,topic:"Build"},
+      {q:"What is code splitting?",opts:["Lazy loading","Code separation","Splitting bundle into smaller chunks loaded on demand","None"],ans:2,topic:"Build"},
+      {q:"What is lazy loading?",opts:["Eager loading","Pre-loading","Loading resources only when needed","None"],ans:2,topic:"Performance"},
+      {q:"What is debouncing?",opts:["Rate limiting","None","Delaying function until user stops triggering it","Throttling"],ans:2,topic:"Performance"},
+      {q:"What is throttling?",opts:["Limiting function call rate to once per interval","None","Caching","Debouncing"],ans:0,topic:"Performance"},
+      {q:"What is memoization in React?",opts:["None","State management","Memory","Caching render to skip unnecessary re-renders"],ans:3,topic:"Performance"},
+      {q:"What is virtualization in UI?",opts:["Virtual DOM","Rendering only visible list items","None","DOM caching"],ans:1,topic:"Performance"},
+      {q:"What is a Higher Order Component?",opts:["None","Function taking component returning enhanced component","CSS component","Hook"],ans:1,topic:"React Patterns"},
+      {q:"What is render props pattern?",opts:["Render function","Sharing code via prop that is a function","None","Prop drilling"],ans:1,topic:"React Patterns"},
+      {q:"What is compound component pattern?",opts:["Compound class","Multi-component","None","Components sharing implicit state"],ans:3,topic:"React Patterns"},
+      {q:"What is Webpack?",opts:["Database","Module bundler for JS/CSS/assets","None","Testing tool"],ans:1,topic:"Build Tools"},
+      {q:"What is Vite?",opts:["Fast build tool using native ES modules","Vite class","None","Build server"],ans:0,topic:"Build Tools"},
+      {q:"What is Babel?",opts:["Build tool","JavaScript transpiler for compatibility","Linter","None"],ans:1,topic:"Build Tools"},
+      {q:"What is ESLint?",opts:["HTML linter","CSS linter","None","JavaScript linting tool"],ans:3,topic:"Tools"},
+      {q:"What is Prettier?",opts:["Code formatter for consistent style","Linter","Bundler","None"],ans:0,topic:"Tools"},
+      {q:"What is TypeScript?",opts:["JS variant","Typed superset of JavaScript","Type checker","None"],ans:1,topic:"TypeScript"},
+      {q:"What is an interface in TypeScript?",opts:["Type alias","Defines shape of object type","None","Abstract class"],ans:1,topic:"TypeScript"},
+      {q:"What is a type alias in TypeScript?",opts:["Alternative name for type","Class","Interface","None"],ans:0,topic:"TypeScript"},
+      {q:"What is a generic in TypeScript?",opts:["None","Type parameter for reusable typed code","Template","Generic class"],ans:1,topic:"TypeScript"},
+      {q:"What is Next.js?",opts:["React extension","React framework with SSR, SSG, routing","None","Next version"],ans:1,topic:"Next.js"},
+      {q:"What is the App Router in Next.js 13+?",opts:["App class","None","Route manager","File-system routing in app/ directory"],ans:3,topic:"Next.js"},
+      {q:"What is server component in Next.js?",opts:["Server class","None","Component rendered on server with no JS sent to client","SSR component"],ans:2,topic:"Next.js"},
+      {q:"What is client component?",opts:["Server component","Component with interactivity rendered in browser","None","Static component"],ans:1,topic:"Next.js"},
+      {q:"What is middleware in Next.js?",opts:["Runs before request is processed","Express middleware","None","DB middleware"],ans:0,topic:"Next.js"},
+      {q:"What is SWR?",opts:["Suspense wrapper","None","State wrapper","React hook for data fetching with stale-while-revalidate"],ans:3,topic:"Data Fetching"},
+      {q:"What is React Query?",opts:["None","Query class","Powerful data fetching and caching library","Data class"],ans:2,topic:"Data Fetching"},
+      {q:"What is GraphQL?",opts:["Graph database","None","Graph query","Query language for APIs — request exactly what you need"],ans:3,topic:"APIs"},
+      {q:"What is REST vs GraphQL?",opts:["REST is newer","None","REST fixed endpoints, GraphQL flexible queries","Same thing"],ans:2,topic:"APIs"},
+      {q:"What is tRPC?",opts:["Type RPC","TypeScript RPC","None","End-to-end type-safe API without schema"],ans:3,topic:"APIs"},
+      {q:"What is Zustand?",opts:["None","Zustand class","State class","Lightweight state management for React"],ans:3,topic:"State Management"},
+      {q:"What is Redux?",opts:["Predictable state container with single store","None","Global class","React state"],ans:0,topic:"State Management"},
+      {q:"What is Server-Side Rendering (SSR)?",opts:["Client rendering","Static rendering","None","HTML generated on server before sending to client"],ans:3,topic:"Architecture"},
+      {q:"What is Static Site Generation (SSG)?",opts:["HTML pre-generated at build time","None","Server rendering","Dynamic rendering"],ans:0,topic:"Architecture"},
+      {q:"What is ISR in Next.js?",opts:["None","Incremental Static Regeneration — rebuild pages on demand","Immediate Static","Incremental Server"],ans:1,topic:"Next.js"},
+      {q:"What is hydration?",opts:["Attaching React events to server-rendered HTML","None","SSR only","Adding water"],ans:0,topic:"Next.js"},
+      {q:"What is a Service Worker?",opts:["Background script enabling offline/PWA features","None","Backend worker","Database"],ans:0,topic:"PWA"},
+      {q:"What is a PWA?",opts:["Progressive Web App","None","None","Web app with native app-like capabilities"],ans:3,topic:"PWA"},
+      {q:"What is the Cache API?",opts:["Service worker API for caching requests","None","Browser cache","HTTP cache"],ans:0,topic:"PWA"},
+      {q:"What is WebSocket?",opts:["HTTP request","None","Full-duplex real-time communication protocol","Database"],ans:2,topic:"Real-time"},
+      {q:"What is Server-Sent Events?",opts:["WebSocket","None","HTTP stream","One-way server to client real-time stream"],ans:3,topic:"Real-time"},
+      {q:"What is WebRTC?",opts:["Peer-to-peer browser communication for video/audio","Web RTC class","Web request","None"],ans:0,topic:"Real-time"},
+      {q:"What is Tree Shaking?",opts:["None","DOM manipulation","CSS technique","Removing unused code from bundle"],ans:3,topic:"Build"},
+      {q:"What is code splitting?",opts:["Lazy loading","Code separation","Splitting bundle into smaller chunks loaded on demand","None"],ans:2,topic:"Build"},
+      {q:"What is lazy loading?",opts:["Eager loading","Pre-loading","Loading resources only when needed","None"],ans:2,topic:"Performance"},
+      {q:"What is debouncing?",opts:["Rate limiting","None","Delaying function until user stops triggering it","Throttling"],ans:2,topic:"Performance"},
+      {q:"What is throttling?",opts:["Limiting function call rate to once per interval","None","Caching","Debouncing"],ans:0,topic:"Performance"},
+      {q:"What is memoization in React?",opts:["None","State management","Memory","Caching render to skip unnecessary re-renders"],ans:3,topic:"Performance"},
+      {q:"What is virtualization in UI?",opts:["Virtual DOM","Rendering only visible list items","None","DOM caching"],ans:1,topic:"Performance"},
+      {q:"What is a Higher Order Component?",opts:["None","Function taking component returning enhanced component","CSS component","Hook"],ans:1,topic:"React Patterns"},
+      {q:"What is render props pattern?",opts:["Render function","Sharing code via prop that is a function","None","Prop drilling"],ans:1,topic:"React Patterns"},
+      {q:"What is compound component pattern?",opts:["Compound class","Multi-component","None","Components sharing implicit state"],ans:3,topic:"React Patterns"},
+      {q:"What is Webpack?",opts:["Database","Module bundler for JS/CSS/assets","None","Testing tool"],ans:1,topic:"Build Tools"},
+      {q:"What is Vite?",opts:["Fast build tool using native ES modules","Vite class","None","Build server"],ans:0,topic:"Build Tools"},
+      {q:"What is Babel?",opts:["Build tool","JavaScript transpiler for compatibility","Linter","None"],ans:1,topic:"Build Tools"},
+      {q:"What is ESLint?",opts:["HTML linter","CSS linter","None","JavaScript linting tool"],ans:3,topic:"Tools"},
+      {q:"What is Prettier?",opts:["Code formatter for consistent style","Linter","Bundler","None"],ans:0,topic:"Tools"},
+      {q:"What is TypeScript?",opts:["JS variant","Typed superset of JavaScript","Type checker","None"],ans:1,topic:"TypeScript"},
+      {q:"What is an interface in TypeScript?",opts:["Type alias","Defines shape of object type","None","Abstract class"],ans:1,topic:"TypeScript"},
+      {q:"What is a type alias in TypeScript?",opts:["Alternative name for type","Class","Interface","None"],ans:0,topic:"TypeScript"},
+      {q:"What is a generic in TypeScript?",opts:["None","Type parameter for reusable typed code","Template","Generic class"],ans:1,topic:"TypeScript"},
+      {q:"What is Next.js?",opts:["React extension","React framework with SSR, SSG, routing","None","Next version"],ans:1,topic:"Next.js"},
+      {q:"What is the App Router in Next.js 13+?",opts:["App class","None","Route manager","File-system routing in app/ directory"],ans:3,topic:"Next.js"},
+      {q:"What is server component in Next.js?",opts:["Server class","None","Component rendered on server with no JS sent to client","SSR component"],ans:2,topic:"Next.js"},
+      {q:"What is client component?",opts:["Server component","Component with interactivity rendered in browser","None","Static component"],ans:1,topic:"Next.js"},
+      {q:"What is middleware in Next.js?",opts:["Runs before request is processed","Express middleware","None","DB middleware"],ans:0,topic:"Next.js"},
+      {q:"What is SWR?",opts:["Suspense wrapper","None","State wrapper","React hook for data fetching with stale-while-revalidate"],ans:3,topic:"Data Fetching"},
+      {q:"What is React Query?",opts:["None","Query class","Powerful data fetching and caching library","Data class"],ans:2,topic:"Data Fetching"},
+      {q:"What is GraphQL?",opts:["Graph database","None","Graph query","Query language for APIs — request exactly what you need"],ans:3,topic:"APIs"},
+      {q:"What is REST vs GraphQL?",opts:["REST is newer","None","REST fixed endpoints, GraphQL flexible queries","Same thing"],ans:2,topic:"APIs"},
+      {q:"What is tRPC?",opts:["Type RPC","TypeScript RPC","None","End-to-end type-safe API without schema"],ans:3,topic:"APIs"},
+      {q:"What is Zustand?",opts:["None","Zustand class","State class","Lightweight state management for React"],ans:3,topic:"State Management"},
+      {q:"What is Redux?",opts:["Predictable state container with single store","None","Global class","React state"],ans:0,topic:"State Management"},
+      {q:"What is Server-Side Rendering (SSR)?",opts:["Client rendering","Static rendering","None","HTML generated on server before sending to client"],ans:3,topic:"Architecture"},
+      {q:"What is Static Site Generation (SSG)?",opts:["HTML pre-generated at build time","None","Server rendering","Dynamic rendering"],ans:0,topic:"Architecture"},
+      {q:"What is ISR in Next.js?",opts:["None","Incremental Static Regeneration — rebuild pages on demand","Immediate Static","Incremental Server"],ans:1,topic:"Next.js"},
+      {q:"What is hydration?",opts:["Attaching React events to server-rendered HTML","None","SSR only","Adding water"],ans:0,topic:"Next.js"},
+      {q:"What is a Service Worker?",opts:["Background script enabling offline/PWA features","None","Backend worker","Database"],ans:0,topic:"PWA"},
+      {q:"What is a PWA?",opts:["Progressive Web App","None","None","Web app with native app-like capabilities"],ans:3,topic:"PWA"},
+      {q:"What is the Cache API?",opts:["Service worker API for caching requests","None","Browser cache","HTTP cache"],ans:0,topic:"PWA"},
+      {q:"What is WebSocket?",opts:["HTTP request","None","Full-duplex real-time communication protocol","Database"],ans:2,topic:"Real-time"},
+      {q:"What is Server-Sent Events?",opts:["WebSocket","None","HTTP stream","One-way server to client real-time stream"],ans:3,topic:"Real-time"},
+      {q:"What is WebRTC?",opts:["Peer-to-peer browser communication for video/audio","Web RTC class","Web request","None"],ans:0,topic:"Real-time"},
+      {q:"What is Tree Shaking?",opts:["None","DOM manipulation","CSS technique","Removing unused code from bundle"],ans:3,topic:"Build"},
+      {q:"What is code splitting?",opts:["Lazy loading","Code separation","Splitting bundle into smaller chunks loaded on demand","None"],ans:2,topic:"Build"},
+      {q:"What is lazy loading?",opts:["Eager loading","Pre-loading","Loading resources only when needed","None"],ans:2,topic:"Performance"},
+      {q:"What is debouncing?",opts:["Rate limiting","None","Delaying function until user stops triggering it","Throttling"],ans:2,topic:"Performance"},
+      {q:"What is throttling?",opts:["Limiting function call rate to once per interval","None","Caching","Debouncing"],ans:0,topic:"Performance"},
+      {q:"What is memoization in React?",opts:["None","State management","Memory","Caching render to skip unnecessary re-renders"],ans:3,topic:"Performance"},
+      {q:"What is virtualization in UI?",opts:["Virtual DOM","Rendering only visible list items","None","DOM caching"],ans:1,topic:"Performance"},
+      {q:"What is a Higher Order Component?",opts:["None","Function taking component returning enhanced component","CSS component","Hook"],ans:1,topic:"React Patterns"},
+      {q:"What is render props pattern?",opts:["Render function","Sharing code via prop that is a function","None","Prop drilling"],ans:1,topic:"React Patterns"},
+      {q:"What is compound component pattern?",opts:["Compound class","Multi-component","None","Components sharing implicit state"],ans:3,topic:"React Patterns"},
+      {q:"What is Webpack?",opts:["Database","Module bundler for JS/CSS/assets","None","Testing tool"],ans:1,topic:"Build Tools"},
+      {q:"What is Vite?",opts:["Fast build tool using native ES modules","Vite class","None","Build server"],ans:0,topic:"Build Tools"},
+      {q:"What is Babel?",opts:["Build tool","JavaScript transpiler for compatibility","Linter","None"],ans:1,topic:"Build Tools"},
+      {q:"What is ESLint?",opts:["HTML linter","CSS linter","None","JavaScript linting tool"],ans:3,topic:"Tools"},
+      {q:"What is Prettier?",opts:["Code formatter for consistent style","Linter","Bundler","None"],ans:0,topic:"Tools"},
+      {q:"What is TypeScript?",opts:["JS variant","Typed superset of JavaScript","Type checker","None"],ans:1,topic:"TypeScript"},
+      {q:"What is an interface in TypeScript?",opts:["Type alias","Defines shape of object type","None","Abstract class"],ans:1,topic:"TypeScript"},
+      {q:"What is a type alias in TypeScript?",opts:["Alternative name for type","Class","Interface","None"],ans:0,topic:"TypeScript"},
+      {q:"What is a generic in TypeScript?",opts:["None","Type parameter for reusable typed code","Template","Generic class"],ans:1,topic:"TypeScript"},
+      {q:"What is Next.js?",opts:["React extension","React framework with SSR, SSG, routing","None","Next version"],ans:1,topic:"Next.js"},
+      {q:"What is the App Router in Next.js 13+?",opts:["App class","None","Route manager","File-system routing in app/ directory"],ans:3,topic:"Next.js"},
+      {q:"What is server component in Next.js?",opts:["Server class","None","Component rendered on server with no JS sent to client","SSR component"],ans:2,topic:"Next.js"},
+      {q:"What is client component?",opts:["Server component","Component with interactivity rendered in browser","None","Static component"],ans:1,topic:"Next.js"},
+      {q:"What is middleware in Next.js?",opts:["Runs before request is processed","Express middleware","None","DB middleware"],ans:0,topic:"Next.js"},
+      {q:"What is SWR?",opts:["Suspense wrapper","None","State wrapper","React hook for data fetching with stale-while-revalidate"],ans:3,topic:"Data Fetching"},
+      {q:"What is React Query?",opts:["None","Query class","Powerful data fetching and caching library","Data class"],ans:2,topic:"Data Fetching"},
+      {q:"What is GraphQL?",opts:["Graph database","None","Graph query","Query language for APIs — request exactly what you need"],ans:3,topic:"APIs"},
+      {q:"What is REST vs GraphQL?",opts:["REST is newer","None","REST fixed endpoints, GraphQL flexible queries","Same thing"],ans:2,topic:"APIs"},
+      {q:"What is tRPC?",opts:["Type RPC","TypeScript RPC","None","End-to-end type-safe API without schema"],ans:3,topic:"APIs"},
+      {q:"What is Zustand?",opts:["None","Zustand class","State class","Lightweight state management for React"],ans:3,topic:"State Management"},
+      {q:"What is Redux?",opts:["Predictable state container with single store","None","Global class","React state"],ans:0,topic:"State Management"},
+      {q:"What is Server-Side Rendering (SSR)?",opts:["Client rendering","Static rendering","None","HTML generated on server before sending to client"],ans:3,topic:"Architecture"},
+      {q:"What is Static Site Generation (SSG)?",opts:["HTML pre-generated at build time","None","Server rendering","Dynamic rendering"],ans:0,topic:"Architecture"},
+      {q:"What is ISR in Next.js?",opts:["None","Incremental Static Regeneration — rebuild pages on demand","Immediate Static","Incremental Server"],ans:1,topic:"Next.js"},
+      {q:"What is hydration?",opts:["Attaching React events to server-rendered HTML","None","SSR only","Adding water"],ans:0,topic:"Next.js"},
+      {q:"What is a Service Worker?",opts:["Background script enabling offline/PWA features","None","Backend worker","Database"],ans:0,topic:"PWA"},
+      {q:"What is a PWA?",opts:["Progressive Web App","None","None","Web app with native app-like capabilities"],ans:3,topic:"PWA"},
+      {q:"What is the Cache API?",opts:["Service worker API for caching requests","None","Browser cache","HTTP cache"],ans:0,topic:"PWA"},
+      {q:"What is WebSocket?",opts:["HTTP request","None","Full-duplex real-time communication protocol","Database"],ans:2,topic:"Real-time"},
+      {q:"What is Server-Sent Events?",opts:["WebSocket","None","HTTP stream","One-way server to client real-time stream"],ans:3,topic:"Real-time"},
+      {q:"What is WebRTC?",opts:["Peer-to-peer browser communication for video/audio","Web RTC class","Web request","None"],ans:0,topic:"Real-time"},
+      {q:"What is Tree Shaking?",opts:["None","DOM manipulation","CSS technique","Removing unused code from bundle"],ans:3,topic:"Build"},
+      {q:"What is code splitting?",opts:["Lazy loading","Code separation","Splitting bundle into smaller chunks loaded on demand","None"],ans:2,topic:"Build"},
+      {q:"What is lazy loading?",opts:["Eager loading","Pre-loading","Loading resources only when needed","None"],ans:2,topic:"Performance"},
+      {q:"What is debouncing?",opts:["Rate limiting","None","Delaying function until user stops triggering it","Throttling"],ans:2,topic:"Performance"},
+      {q:"What is throttling?",opts:["Limiting function call rate to once per interval","None","Caching","Debouncing"],ans:0,topic:"Performance"},
+      {q:"What is memoization in React?",opts:["None","State management","Memory","Caching render to skip unnecessary re-renders"],ans:3,topic:"Performance"},
+      {q:"What is virtualization in UI?",opts:["Virtual DOM","Rendering only visible list items","None","DOM caching"],ans:1,topic:"Performance"},
+      {q:"What is a Higher Order Component?",opts:["None","Function taking component returning enhanced component","CSS component","Hook"],ans:1,topic:"React Patterns"},
+      {q:"What is render props pattern?",opts:["Render function","Sharing code via prop that is a function","None","Prop drilling"],ans:1,topic:"React Patterns"},
+      {q:"What is compound component pattern?",opts:["Compound class","Multi-component","None","Components sharing implicit state"],ans:3,topic:"React Patterns"},
+      {q:"What is Webpack?",opts:["Database","Module bundler for JS/CSS/assets","None","Testing tool"],ans:1,topic:"Build Tools"},
+      {q:"What is Vite?",opts:["Fast build tool using native ES modules","Vite class","None","Build server"],ans:0,topic:"Build Tools"},
+      {q:"What is Babel?",opts:["Build tool","JavaScript transpiler for compatibility","Linter","None"],ans:1,topic:"Build Tools"},
+      {q:"What is ESLint?",opts:["HTML linter","CSS linter","None","JavaScript linting tool"],ans:3,topic:"Tools"},
+      {q:"What is Prettier?",opts:["Code formatter for consistent style","Linter","Bundler","None"],ans:0,topic:"Tools"},
+      {q:"What is TypeScript?",opts:["JS variant","Typed superset of JavaScript","Type checker","None"],ans:1,topic:"TypeScript"},
+      {q:"What is an interface in TypeScript?",opts:["Type alias","Defines shape of object type","None","Abstract class"],ans:1,topic:"TypeScript"},
+      {q:"What is a type alias in TypeScript?",opts:["Alternative name for type","Class","Interface","None"],ans:0,topic:"TypeScript"},
+      {q:"What is a generic in TypeScript?",opts:["None","Type parameter for reusable typed code","Template","Generic class"],ans:1,topic:"TypeScript"},
+      {q:"What is Next.js?",opts:["React extension","React framework with SSR, SSG, routing","None","Next version"],ans:1,topic:"Next.js"},
+      {q:"What is the App Router in Next.js 13+?",opts:["App class","None","Route manager","File-system routing in app/ directory"],ans:3,topic:"Next.js"},
+      {q:"What is server component in Next.js?",opts:["Server class","None","Component rendered on server with no JS sent to client","SSR component"],ans:2,topic:"Next.js"},
+      {q:"What is client component?",opts:["Server component","Component with interactivity rendered in browser","None","Static component"],ans:1,topic:"Next.js"},
+      {q:"What is middleware in Next.js?",opts:["Runs before request is processed","Express middleware","None","DB middleware"],ans:0,topic:"Next.js"},
+      {q:"What is SWR?",opts:["Suspense wrapper","None","State wrapper","React hook for data fetching with stale-while-revalidate"],ans:3,topic:"Data Fetching"},
+      {q:"What is React Query?",opts:["None","Query class","Powerful data fetching and caching library","Data class"],ans:2,topic:"Data Fetching"},
     ],
   },
   c4:{
     basic:[
-      {q:"What is an array?",opts:["Key-value store","Fixed-size collection of same-type elements","Dynamic list","Tree"],ans:1,topic:"Arrays"},
-      {q:"What is the time complexity of accessing array element by index?",opts:["O(n)","O(log n)","O(1)","O(n²)"],ans:2,topic:"Arrays"},
-      {q:"What is a stack?",opts:["FIFO structure","LIFO structure","Sorted list","Tree"],ans:1,topic:"Stack"},
-      {q:"What is a queue?",opts:["LIFO structure","FIFO structure","Sorted array","None"],ans:1,topic:"Queue"},
-      {q:"What is a linked list?",opts:["Array with pointers","Nodes connected by pointers","Sorted array","None"],ans:1,topic:"Linked List"},
-      {q:"What is linear search?",opts:["Checks middle first","Checks each element one by one","Binary method","None"],ans:1,topic:"Searching"},
-      {q:"What is the time complexity of linear search?",opts:["O(1)","O(log n)","O(n)","O(n²)"],ans:2,topic:"Searching"},
-      {q:"What is binary search?",opts:["Searches all elements","Divides sorted array in half each step","Random search","None"],ans:1,topic:"Searching"},
-      {q:"Binary search requires array to be?",opts:["Unsorted","Sorted","Any order","Empty"],ans:1,topic:"Searching"},
-      {q:"What is bubble sort?",opts:["Divides array","Repeatedly swaps adjacent elements if out of order","Selects minimum","None"],ans:1,topic:"Sorting"},
-      {q:"What is the worst case of bubble sort?",opts:["O(n log n)","O(n)","O(n²)","O(1)"],ans:2,topic:"Sorting"},
-      {q:"What is a tree?",opts:["Array","Hierarchical data structure with nodes and edges","Linked list","None"],ans:1,topic:"Trees"},
-      {q:"What is a binary tree?",opts:["Two arrays","Each node has at most 2 children","Linked list","None"],ans:1,topic:"Trees"},
-      {q:"What is the root of a tree?",opts:["Last node","Topmost node","Leaf node","None"],ans:1,topic:"Trees"},
-      {q:"What is a leaf node?",opts:["Root node","Node with no children","Middle node","None"],ans:1,topic:"Trees"},
-      {q:"What is recursion?",opts:["For loop","Function calling itself","While loop","None"],ans:1,topic:"Recursion"},
-      {q:"What is the base case in recursion?",opts:["First call","Condition that stops recursion","Middle call","None"],ans:1,topic:"Recursion"},
-      {q:"What is a hash table?",opts:["Sorted array","Key-value store using hash function for O(1) lookup","Tree","None"],ans:1,topic:"Hashing"},
-      {q:"What is a graph?",opts:["Chart","Non-linear structure with vertices and edges","Array","None"],ans:1,topic:"Graphs"},
-      {q:"What is BFS?",opts:["Binary First Search","Breadth-First Search — explores level by level","None","Depth search"],ans:1,topic:"Graphs"},
+      {q:"What is an array?",opts:["None","Dynamic list","Key-value store","Fixed-size collection of same-type elements"],ans:3,topic:"Arrays"},
+      {q:"Time complexity of array index access?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:1,topic:"Arrays"},
+      {q:"What is a stack?",opts:["LIFO — Last In First Out","Sorted list","FIFO — First In First Out","Tree"],ans:0,topic:"Stack"},
+      {q:"What is a queue?",opts:["LIFO — Last In First Out","None","Sorted array","FIFO — First In First Out"],ans:3,topic:"Queue"},
+      {q:"What is a linked list?",opts:["Nodes connected by pointers","Sorted array","None","Array with pointers"],ans:0,topic:"Linked List"},
+      {q:"What is linear search?",opts:["Binary method","Checks each element one by one","Checks middle first","None"],ans:1,topic:"Searching"},
+      {q:"Time complexity of linear search?",opts:["O(1)","O(n)","O(n²)","O(log n)"],ans:1,topic:"Searching"},
+      {q:"What is binary search?",opts:["Divides sorted array in half each step","Searches all elements","None","Random search"],ans:0,topic:"Searching"},
+      {q:"Binary search requires array to be?",opts:["Empty","Sorted","Unsorted","Any order"],ans:1,topic:"Searching"},
+      {q:"What is bubble sort?",opts:["Divides array","Repeatedly swaps adjacent elements if out of order","None","Selects minimum"],ans:1,topic:"Sorting"},
+      {q:"Worst case of bubble sort?",opts:["O(1)","O(n log n)","O(n²)","O(n)"],ans:2,topic:"Sorting"},
+      {q:"What is a tree?",opts:["None","Linked list","Array","Hierarchical data structure with nodes and edges"],ans:3,topic:"Trees"},
+      {q:"What is a binary tree?",opts:["None","Linked list","Each node has at most 2 children","Two arrays"],ans:2,topic:"Trees"},
+      {q:"What is the root of a tree?",opts:["None","Leaf node","Last node","Topmost node"],ans:3,topic:"Trees"},
+      {q:"What is a leaf node?",opts:["Root node","Middle node","Node with no children","None"],ans:2,topic:"Trees"},
+      {q:"What is recursion?",opts:["Function calling itself","For loop","None","While loop"],ans:0,topic:"Recursion"},
+      {q:"What is the base case in recursion?",opts:["Middle call","None","Condition that stops recursion","First call"],ans:2,topic:"Recursion"},
+      {q:"What is a hash table?",opts:["Key-value store using hash function for O(1) lookup","Tree","Sorted array","None"],ans:0,topic:"Hashing"},
+      {q:"What is a graph?",opts:["Chart","Array","Non-linear structure with vertices and edges","None"],ans:2,topic:"Graphs"},
+      {q:"What is BFS?",opts:["Breadth-First Search — explores level by level","Binary First Search","None","Depth search"],ans:0,topic:"Graphs"},
+      {q:"What is DFS?",opts:["None","Breadth search","Depth-First Search — explores as far as possible","Default First Search"],ans:2,topic:"Graphs"},
+      {q:"What is a complete binary tree?",opts:["Perfect tree","Full tree","None","All levels full except possibly last filled left-right"],ans:3,topic:"Trees"},
+      {q:"What is a full binary tree?",opts:["Every node has 0 or 2 children","Complete tree","Perfect tree","None"],ans:0,topic:"Trees"},
+      {q:"What is a perfect binary tree?",opts:["Full tree","All internal nodes have 2 children and all leaves same level","None","Complete tree"],ans:1,topic:"Trees"},
+      {q:"What is height of binary tree?",opts:["Level count","None","Node count","Longest path from root to leaf"],ans:3,topic:"Trees"},
+      {q:"What is depth of a node?",opts:["Distance from root to node","Distance to leaf","None","Node level"],ans:0,topic:"Trees"},
+      {q:"What is level of a node?",opts:["Depth+1","Number of edges from root (root=0)","Height of node","None"],ans:1,topic:"Trees"},
+      {q:"What is insertion sort?",opts:["Divides array","Selects min","Builds sorted array one element at a time","None"],ans:2,topic:"Sorting"},
+      {q:"Best case of insertion sort?",opts:["O(n) — already sorted","O(n²)","O(1)","O(n log n)"],ans:0,topic:"Sorting"},
+      {q:"What is selection sort?",opts:["None","Divides array","Swaps adjacent","Finds minimum and places at correct position"],ans:3,topic:"Sorting"},
+      {q:"Time complexity of selection sort?",opts:["O(n)","O(n²) always","O(1)","O(n log n)"],ans:1,topic:"Sorting"},
+      {q:"What is a stable sort?",opts:["Stable memory","None","Equal elements maintain relative order","Fast sort"],ans:2,topic:"Sorting"},
+      {q:"Is bubble sort stable?",opts:["Yes","Depends","No","Sometimes"],ans:0,topic:"Sorting"},
+      {q:"What is a priority queue?",opts:["Ordered queue","None","Queue serving highest priority element first","FIFO queue"],ans:2,topic:"Data Structures"},
+      {q:"What is a heap?",opts:["Random tree","Sorted tree","None","Complete binary tree with heap property"],ans:3,topic:"Trees"},
+      {q:"What is a max-heap?",opts:["Parent >= all children","None","Random order","Parent <= children"],ans:0,topic:"Trees"},
+      {q:"What is a min-heap?",opts:["Parent <= all children","Parent >= children","Random order","None"],ans:0,topic:"Trees"},
+      {q:"What is heap property?",opts:["None","Parent has priority over children","Heap is complete","Heap is sorted"],ans:1,topic:"Trees"},
+      {q:"What is heapify?",opts:["Process of making tree satisfy heap property","Heap creation","None","Heap sort"],ans:0,topic:"Trees"},
+      {q:"Time to build heap from array?",opts:["O(n)","O(n²)","O(log n)","O(n log n)"],ans:0,topic:"Trees"},
+      {q:"What is a stack overflow?",opts:["Recursion too deep exceeds call stack","Stack is full","None","Memory error"],ans:0,topic:"Recursion"},
+      {q:"What is tail recursion?",opts:["None","Recursive call is last operation in function","First recursion","Any recursion"],ans:1,topic:"Recursion"},
+      {q:"What is memoization?",opts:["None","Caching recursive results to avoid recomputation","Memory management","Recursion type"],ans:1,topic:"Optimization"},
+      {q:"What is a collision in hashing?",opts:["Two keys map to same hash bucket","Key not found","Table overflow","None"],ans:0,topic:"Hashing"},
+      {q:"What is chaining in hash tables?",opts:["None","Array chaining","None","Linked list at each bucket for collisions"],ans:3,topic:"Hashing"},
+      {q:"What is open addressing?",opts:["Open bucket","Finding another slot in same table on collision","None","Linear search"],ans:1,topic:"Hashing"},
+      {q:"What is linear probing?",opts:["None","Linear hash","Probe list","Check next slot sequentially on collision"],ans:3,topic:"Hashing"},
+      {q:"What is a doubly linked list?",opts:["Each node has next and prev pointers","None","None","Two lists"],ans:0,topic:"Linked List"},
+      {q:"What is a circular linked list?",opts:["None","Last node points back to first node","Two heads","Loop array"],ans:1,topic:"Linked List"},
+      {q:"What is sentinel node?",opts:["First node","None","Last node","Dummy node simplifying edge cases"],ans:3,topic:"Linked List"},
+      {q:"How to detect cycle in linked list?",opts:["BFS","Hash set only","Floyd's fast-slow pointer algorithm","DFS"],ans:2,topic:"Linked List"},
+      {q:"What is two-pointer technique?",opts:["None","Two indices to solve array problems efficiently","Two arrays","Two loops"],ans:1,topic:"Techniques"},
+      {q:"What is sliding window?",opts:["Animation","Maintain window to avoid O(n²) subarray problems","Two pointers","None"],ans:1,topic:"Techniques"},
+      {q:"What is prefix sum?",opts:["Precomputed cumulative sum for O(1) range queries","First sum","Prefix array","None"],ans:0,topic:"Techniques"},
+      {q:"What is difference array?",opts:["Diff technique","None","Array difference","Enables O(1) range updates"],ans:3,topic:"Techniques"},
+      {q:"What is divide and conquer?",opts:["Break into subproblems, solve, combine","None","DP","Greedy"],ans:0,topic:"Paradigms"},
+      {q:"What is greedy algorithm?",opts:["Makes locally optimal choice at each step","Brute force","DP","None"],ans:0,topic:"Paradigms"},
+      {q:"What is dynamic programming?",opts:["None","Greedy","Optimal substructure + overlapping subproblems","Recursion"],ans:2,topic:"Paradigms"},
+      {q:"What is backtracking?",opts:["Try all possibilities, undo on failure","DP","None","Greedy"],ans:0,topic:"Paradigms"},
+      {q:"What is amortized analysis?",opts:["Average cost per operation over a sequence","Worst case","None","Best case"],ans:0,topic:"Complexity"},
+      {q:"What is space complexity?",opts:["CPU usage","None","Memory used by algorithm","Time usage"],ans:2,topic:"Complexity"},
+      {q:"What is auxiliary space?",opts:["None","Total space","Extra space beyond input","Input space"],ans:2,topic:"Complexity"},
+      {q:"Best, average, worst case of quicksort?",opts:["Always O(n log n)","O(n log n), O(n log n), O(n²)","None","Always O(n²)"],ans:1,topic:"Sorting"},
+      {q:"What is merge sort time complexity?",opts:["O(n log n) always","O(n)","O(n²)","O(log n)"],ans:0,topic:"Sorting"},
+      {q:"What is merge sort space complexity?",opts:["O(n) auxiliary","O(1)","O(n²)","O(log n)"],ans:0,topic:"Sorting"},
+      {q:"What is counting sort?",opts:["None","Comparison sort","Non-comparison sort using count array","Radix sort"],ans:2,topic:"Sorting"},
+      {q:"What is radix sort?",opts:["Radix tree sort","Sorts digit by digit, non-comparison","Counting variant","None"],ans:1,topic:"Sorting"},
+      {q:"What is bucket sort?",opts:["None","Bucket tree","Distributes elements into buckets then sorts","Bucket hash"],ans:2,topic:"Sorting"},
+      {q:"When is counting sort efficient?",opts:["When k is large","Never","Always","When range of values k is small relative to n"],ans:3,topic:"Sorting"},
+      {q:"What is an adjacency matrix?",opts:["2D array representing graph edges","Graph matrix","None","Edge list"],ans:0,topic:"Graphs"},
+      {q:"What is an adjacency list?",opts:["Edge matrix","None","List of neighbors for each vertex","Node list"],ans:2,topic:"Graphs"},
+      {q:"Space complexity of adjacency matrix?",opts:["O(V+E)","O(V)","O(V²)","O(E)"],ans:2,topic:"Graphs"},
+      {q:"Space complexity of adjacency list?",opts:["O(V)","O(E)","O(V+E)","O(V²)"],ans:2,topic:"Graphs"},
+      {q:"What is a directed graph?",opts:["None","Edges have direction","Weighted graph","Undirected graph"],ans:1,topic:"Graphs"},
+      {q:"What is a weighted graph?",opts:["Directed graph","Unweighted graph","None","Edges have weights/costs"],ans:3,topic:"Graphs"},
+      {q:"What is a DAG?",opts:["Directed Acyclic Graph — no cycles","Directed All Graph","None","Data Array Graph"],ans:0,topic:"Graphs"},
+      {q:"What is topological sort?",opts:["Graph sort","None","Node order","Linear ordering of DAG respecting edge direction"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path?",opts:["Euler circuit","None","Hamilton path","Visits every edge exactly once"],ans:3,topic:"Graphs"},
+      {q:"What is Hamiltonian path?",opts:["Visits every vertex exactly once","Euler path","Euler circuit","None"],ans:0,topic:"Graphs"},
+      {q:"What is a spanning tree?",opts:["Full graph","Subgraph connecting all vertices with minimum edges","Random tree","None"],ans:1,topic:"Graphs"},
+      {q:"What is MST?",opts:["Minimum Spanning Tree — min total edge weight","None","Maximum spanning tree","Mini spanning"],ans:0,topic:"Graphs"},
+      {q:"What is Kruskal's algorithm?",opts:["Shortest path","DFS","None","Greedy MST — pick min weight edges avoiding cycles"],ans:3,topic:"Graphs"},
+      {q:"What is Prim's algorithm?",opts:["BFS","Shortest path","None","Greedy MST — grow tree one vertex at a time"],ans:3,topic:"Graphs"},
+      {q:"What is Dijkstra's algorithm?",opts:["DFS","None","Greedy shortest path with non-negative weights","MST algorithm"],ans:2,topic:"Graphs"},
+      {q:"Bellman-Ford handles negative weights?",opts:["Sometimes","No","Yes","Only positive"],ans:2,topic:"Graphs"},
+      {q:"Floyd-Warshall finds?",opts:["MST","Single source","Topological sort","All-pairs shortest paths"],ans:3,topic:"Graphs"},
+      {q:"What is SCC?",opts:["None","Sub component","Single connected","Strongly Connected Component — mutual reachability"],ans:3,topic:"Graphs"},
+      {q:"Tarjan's algorithm finds?",opts:["SCCs in O(V+E)","MST","Shortest path","Topological sort"],ans:0,topic:"Graphs"},
+      {q:"Kosaraju's algorithm uses?",opts:["Two DFS passes to find SCCs","None","BFS","One DFS"],ans:0,topic:"Graphs"},
+      {q:"What is articulation point?",opts:["Bridge point","None","Removing it disconnects the graph","Key node"],ans:2,topic:"Graphs"},
+      {q:"What is a bridge in graphs?",opts:["None","Bridge node","Edge whose removal disconnects graph","Key edge"],ans:2,topic:"Graphs"},
+      {q:"What is an array?",opts:["None","Dynamic list","Key-value store","Fixed-size collection of same-type elements"],ans:3,topic:"Arrays"},
+      {q:"Time complexity of array index access?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:1,topic:"Arrays"},
+      {q:"What is a stack?",opts:["LIFO — Last In First Out","Sorted list","FIFO — First In First Out","Tree"],ans:0,topic:"Stack"},
+      {q:"What is a queue?",opts:["LIFO — Last In First Out","None","Sorted array","FIFO — First In First Out"],ans:3,topic:"Queue"},
+      {q:"What is a linked list?",opts:["Nodes connected by pointers","Sorted array","None","Array with pointers"],ans:0,topic:"Linked List"},
+      {q:"What is linear search?",opts:["Binary method","Checks each element one by one","Checks middle first","None"],ans:1,topic:"Searching"},
+      {q:"Time complexity of linear search?",opts:["O(1)","O(n)","O(n²)","O(log n)"],ans:1,topic:"Searching"},
+      {q:"What is binary search?",opts:["Divides sorted array in half each step","Searches all elements","None","Random search"],ans:0,topic:"Searching"},
+      {q:"Binary search requires array to be?",opts:["Empty","Sorted","Unsorted","Any order"],ans:1,topic:"Searching"},
+      {q:"What is bubble sort?",opts:["Divides array","Repeatedly swaps adjacent elements if out of order","None","Selects minimum"],ans:1,topic:"Sorting"},
+      {q:"Worst case of bubble sort?",opts:["O(1)","O(n log n)","O(n²)","O(n)"],ans:2,topic:"Sorting"},
+      {q:"What is a tree?",opts:["None","Linked list","Array","Hierarchical data structure with nodes and edges"],ans:3,topic:"Trees"},
+      {q:"What is a binary tree?",opts:["None","Linked list","Each node has at most 2 children","Two arrays"],ans:2,topic:"Trees"},
+      {q:"What is the root of a tree?",opts:["None","Leaf node","Last node","Topmost node"],ans:3,topic:"Trees"},
+      {q:"What is a leaf node?",opts:["Root node","Middle node","Node with no children","None"],ans:2,topic:"Trees"},
+      {q:"What is recursion?",opts:["Function calling itself","For loop","None","While loop"],ans:0,topic:"Recursion"},
+      {q:"What is the base case in recursion?",opts:["Middle call","None","Condition that stops recursion","First call"],ans:2,topic:"Recursion"},
+      {q:"What is a hash table?",opts:["Key-value store using hash function for O(1) lookup","Tree","Sorted array","None"],ans:0,topic:"Hashing"},
+      {q:"What is a graph?",opts:["Chart","Array","Non-linear structure with vertices and edges","None"],ans:2,topic:"Graphs"},
+      {q:"What is BFS?",opts:["Breadth-First Search — explores level by level","Binary First Search","None","Depth search"],ans:0,topic:"Graphs"},
+      {q:"What is DFS?",opts:["None","Breadth search","Depth-First Search — explores as far as possible","Default First Search"],ans:2,topic:"Graphs"},
+      {q:"What is a complete binary tree?",opts:["Perfect tree","Full tree","None","All levels full except possibly last filled left-right"],ans:3,topic:"Trees"},
+      {q:"What is a full binary tree?",opts:["Every node has 0 or 2 children","Complete tree","Perfect tree","None"],ans:0,topic:"Trees"},
+      {q:"What is a perfect binary tree?",opts:["Full tree","All internal nodes have 2 children and all leaves same level","None","Complete tree"],ans:1,topic:"Trees"},
+      {q:"What is height of binary tree?",opts:["Level count","None","Node count","Longest path from root to leaf"],ans:3,topic:"Trees"},
+      {q:"What is depth of a node?",opts:["Distance from root to node","Distance to leaf","None","Node level"],ans:0,topic:"Trees"},
+      {q:"What is level of a node?",opts:["Depth+1","Number of edges from root (root=0)","Height of node","None"],ans:1,topic:"Trees"},
+      {q:"What is insertion sort?",opts:["Divides array","Selects min","Builds sorted array one element at a time","None"],ans:2,topic:"Sorting"},
+      {q:"Best case of insertion sort?",opts:["O(n) — already sorted","O(n²)","O(1)","O(n log n)"],ans:0,topic:"Sorting"},
+      {q:"What is selection sort?",opts:["None","Divides array","Swaps adjacent","Finds minimum and places at correct position"],ans:3,topic:"Sorting"},
+      {q:"Time complexity of selection sort?",opts:["O(n)","O(n²) always","O(1)","O(n log n)"],ans:1,topic:"Sorting"},
+      {q:"What is a stable sort?",opts:["Stable memory","None","Equal elements maintain relative order","Fast sort"],ans:2,topic:"Sorting"},
+      {q:"Is bubble sort stable?",opts:["Yes","Depends","No","Sometimes"],ans:0,topic:"Sorting"},
+      {q:"What is a priority queue?",opts:["Ordered queue","None","Queue serving highest priority element first","FIFO queue"],ans:2,topic:"Data Structures"},
+      {q:"What is a heap?",opts:["Random tree","Sorted tree","None","Complete binary tree with heap property"],ans:3,topic:"Trees"},
+      {q:"What is a max-heap?",opts:["Parent >= all children","None","Random order","Parent <= children"],ans:0,topic:"Trees"},
+      {q:"What is a min-heap?",opts:["Parent <= all children","Parent >= children","Random order","None"],ans:0,topic:"Trees"},
+      {q:"What is heap property?",opts:["None","Parent has priority over children","Heap is complete","Heap is sorted"],ans:1,topic:"Trees"},
+      {q:"What is heapify?",opts:["Process of making tree satisfy heap property","Heap creation","None","Heap sort"],ans:0,topic:"Trees"},
+      {q:"Time to build heap from array?",opts:["O(n)","O(n²)","O(log n)","O(n log n)"],ans:0,topic:"Trees"},
+      {q:"What is a stack overflow?",opts:["Recursion too deep exceeds call stack","Stack is full","None","Memory error"],ans:0,topic:"Recursion"},
+      {q:"What is tail recursion?",opts:["None","Recursive call is last operation in function","First recursion","Any recursion"],ans:1,topic:"Recursion"},
+      {q:"What is memoization?",opts:["None","Caching recursive results to avoid recomputation","Memory management","Recursion type"],ans:1,topic:"Optimization"},
+      {q:"What is a collision in hashing?",opts:["Two keys map to same hash bucket","Key not found","Table overflow","None"],ans:0,topic:"Hashing"},
+      {q:"What is chaining in hash tables?",opts:["None","Array chaining","None","Linked list at each bucket for collisions"],ans:3,topic:"Hashing"},
+      {q:"What is open addressing?",opts:["Open bucket","Finding another slot in same table on collision","None","Linear search"],ans:1,topic:"Hashing"},
+      {q:"What is linear probing?",opts:["None","Linear hash","Probe list","Check next slot sequentially on collision"],ans:3,topic:"Hashing"},
+      {q:"What is a doubly linked list?",opts:["Each node has next and prev pointers","None","None","Two lists"],ans:0,topic:"Linked List"},
+      {q:"What is a circular linked list?",opts:["None","Last node points back to first node","Two heads","Loop array"],ans:1,topic:"Linked List"},
+      {q:"What is sentinel node?",opts:["First node","None","Last node","Dummy node simplifying edge cases"],ans:3,topic:"Linked List"},
+      {q:"How to detect cycle in linked list?",opts:["BFS","Hash set only","Floyd's fast-slow pointer algorithm","DFS"],ans:2,topic:"Linked List"},
+      {q:"What is two-pointer technique?",opts:["None","Two indices to solve array problems efficiently","Two arrays","Two loops"],ans:1,topic:"Techniques"},
+      {q:"What is sliding window?",opts:["Animation","Maintain window to avoid O(n²) subarray problems","Two pointers","None"],ans:1,topic:"Techniques"},
+      {q:"What is prefix sum?",opts:["Precomputed cumulative sum for O(1) range queries","First sum","Prefix array","None"],ans:0,topic:"Techniques"},
+      {q:"What is difference array?",opts:["Diff technique","None","Array difference","Enables O(1) range updates"],ans:3,topic:"Techniques"},
+      {q:"What is divide and conquer?",opts:["Break into subproblems, solve, combine","None","DP","Greedy"],ans:0,topic:"Paradigms"},
+      {q:"What is greedy algorithm?",opts:["Makes locally optimal choice at each step","Brute force","DP","None"],ans:0,topic:"Paradigms"},
+      {q:"What is dynamic programming?",opts:["None","Greedy","Optimal substructure + overlapping subproblems","Recursion"],ans:2,topic:"Paradigms"},
+      {q:"What is backtracking?",opts:["Try all possibilities, undo on failure","DP","None","Greedy"],ans:0,topic:"Paradigms"},
+      {q:"What is amortized analysis?",opts:["Average cost per operation over a sequence","Worst case","None","Best case"],ans:0,topic:"Complexity"},
+      {q:"What is space complexity?",opts:["CPU usage","None","Memory used by algorithm","Time usage"],ans:2,topic:"Complexity"},
+      {q:"What is auxiliary space?",opts:["None","Total space","Extra space beyond input","Input space"],ans:2,topic:"Complexity"},
+      {q:"Best, average, worst case of quicksort?",opts:["Always O(n log n)","O(n log n), O(n log n), O(n²)","None","Always O(n²)"],ans:1,topic:"Sorting"},
+      {q:"What is merge sort time complexity?",opts:["O(n log n) always","O(n)","O(n²)","O(log n)"],ans:0,topic:"Sorting"},
+      {q:"What is merge sort space complexity?",opts:["O(n) auxiliary","O(1)","O(n²)","O(log n)"],ans:0,topic:"Sorting"},
+      {q:"What is counting sort?",opts:["None","Comparison sort","Non-comparison sort using count array","Radix sort"],ans:2,topic:"Sorting"},
+      {q:"What is radix sort?",opts:["Radix tree sort","Sorts digit by digit, non-comparison","Counting variant","None"],ans:1,topic:"Sorting"},
+      {q:"What is bucket sort?",opts:["None","Bucket tree","Distributes elements into buckets then sorts","Bucket hash"],ans:2,topic:"Sorting"},
+      {q:"When is counting sort efficient?",opts:["When k is large","Never","Always","When range of values k is small relative to n"],ans:3,topic:"Sorting"},
+      {q:"What is an adjacency matrix?",opts:["2D array representing graph edges","Graph matrix","None","Edge list"],ans:0,topic:"Graphs"},
+      {q:"What is an adjacency list?",opts:["Edge matrix","None","List of neighbors for each vertex","Node list"],ans:2,topic:"Graphs"},
+      {q:"Space complexity of adjacency matrix?",opts:["O(V+E)","O(V)","O(V²)","O(E)"],ans:2,topic:"Graphs"},
+      {q:"Space complexity of adjacency list?",opts:["O(V)","O(E)","O(V+E)","O(V²)"],ans:2,topic:"Graphs"},
+      {q:"What is a directed graph?",opts:["None","Edges have direction","Weighted graph","Undirected graph"],ans:1,topic:"Graphs"},
+      {q:"What is a weighted graph?",opts:["Directed graph","Unweighted graph","None","Edges have weights/costs"],ans:3,topic:"Graphs"},
+      {q:"What is a DAG?",opts:["Directed Acyclic Graph — no cycles","Directed All Graph","None","Data Array Graph"],ans:0,topic:"Graphs"},
+      {q:"What is topological sort?",opts:["Graph sort","None","Node order","Linear ordering of DAG respecting edge direction"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path?",opts:["Euler circuit","None","Hamilton path","Visits every edge exactly once"],ans:3,topic:"Graphs"},
+      {q:"What is Hamiltonian path?",opts:["Visits every vertex exactly once","Euler path","Euler circuit","None"],ans:0,topic:"Graphs"},
+      {q:"What is a spanning tree?",opts:["Full graph","Subgraph connecting all vertices with minimum edges","Random tree","None"],ans:1,topic:"Graphs"},
+      {q:"What is MST?",opts:["Minimum Spanning Tree — min total edge weight","None","Maximum spanning tree","Mini spanning"],ans:0,topic:"Graphs"},
+      {q:"What is Kruskal's algorithm?",opts:["Shortest path","DFS","None","Greedy MST — pick min weight edges avoiding cycles"],ans:3,topic:"Graphs"},
+      {q:"What is Prim's algorithm?",opts:["BFS","Shortest path","None","Greedy MST — grow tree one vertex at a time"],ans:3,topic:"Graphs"},
+      {q:"What is Dijkstra's algorithm?",opts:["DFS","None","Greedy shortest path with non-negative weights","MST algorithm"],ans:2,topic:"Graphs"},
+      {q:"Bellman-Ford handles negative weights?",opts:["Sometimes","No","Yes","Only positive"],ans:2,topic:"Graphs"},
+      {q:"Floyd-Warshall finds?",opts:["MST","Single source","Topological sort","All-pairs shortest paths"],ans:3,topic:"Graphs"},
+      {q:"What is SCC?",opts:["None","Sub component","Single connected","Strongly Connected Component — mutual reachability"],ans:3,topic:"Graphs"},
+      {q:"Tarjan's algorithm finds?",opts:["SCCs in O(V+E)","MST","Shortest path","Topological sort"],ans:0,topic:"Graphs"},
+      {q:"Kosaraju's algorithm uses?",opts:["Two DFS passes to find SCCs","None","BFS","One DFS"],ans:0,topic:"Graphs"},
+      {q:"What is articulation point?",opts:["Bridge point","None","Removing it disconnects the graph","Key node"],ans:2,topic:"Graphs"},
+      {q:"What is a bridge in graphs?",opts:["None","Bridge node","Edge whose removal disconnects graph","Key edge"],ans:2,topic:"Graphs"},
+      {q:"What is an array?",opts:["None","Dynamic list","Key-value store","Fixed-size collection of same-type elements"],ans:3,topic:"Arrays"},
+      {q:"Time complexity of array index access?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:1,topic:"Arrays"},
+      {q:"What is a stack?",opts:["LIFO — Last In First Out","Sorted list","FIFO — First In First Out","Tree"],ans:0,topic:"Stack"},
+      {q:"What is a queue?",opts:["LIFO — Last In First Out","None","Sorted array","FIFO — First In First Out"],ans:3,topic:"Queue"},
+      {q:"What is a linked list?",opts:["Nodes connected by pointers","Sorted array","None","Array with pointers"],ans:0,topic:"Linked List"},
+      {q:"What is linear search?",opts:["Binary method","Checks each element one by one","Checks middle first","None"],ans:1,topic:"Searching"},
+      {q:"Time complexity of linear search?",opts:["O(1)","O(n)","O(n²)","O(log n)"],ans:1,topic:"Searching"},
+      {q:"What is binary search?",opts:["Divides sorted array in half each step","Searches all elements","None","Random search"],ans:0,topic:"Searching"},
+      {q:"Binary search requires array to be?",opts:["Empty","Sorted","Unsorted","Any order"],ans:1,topic:"Searching"},
+      {q:"What is bubble sort?",opts:["Divides array","Repeatedly swaps adjacent elements if out of order","None","Selects minimum"],ans:1,topic:"Sorting"},
+      {q:"Worst case of bubble sort?",opts:["O(1)","O(n log n)","O(n²)","O(n)"],ans:2,topic:"Sorting"},
+      {q:"What is a tree?",opts:["None","Linked list","Array","Hierarchical data structure with nodes and edges"],ans:3,topic:"Trees"},
+      {q:"What is a binary tree?",opts:["None","Linked list","Each node has at most 2 children","Two arrays"],ans:2,topic:"Trees"},
+      {q:"What is the root of a tree?",opts:["None","Leaf node","Last node","Topmost node"],ans:3,topic:"Trees"},
+      {q:"What is a leaf node?",opts:["Root node","Middle node","Node with no children","None"],ans:2,topic:"Trees"},
+      {q:"What is recursion?",opts:["Function calling itself","For loop","None","While loop"],ans:0,topic:"Recursion"},
+      {q:"What is the base case in recursion?",opts:["Middle call","None","Condition that stops recursion","First call"],ans:2,topic:"Recursion"},
+      {q:"What is a hash table?",opts:["Key-value store using hash function for O(1) lookup","Tree","Sorted array","None"],ans:0,topic:"Hashing"},
     ],
     intermediate:[
-      {q:"What is the time complexity of binary search?",opts:["O(n)","O(log n)","O(n²)","O(1)"],ans:1,topic:"Searching"},
-      {q:"What is merge sort's time complexity?",opts:["O(n²)","O(n log n) always","O(n)","O(log n)"],ans:1,topic:"Sorting"},
-      {q:"What is quick sort's average time complexity?",opts:["O(n²)","O(n log n)","O(n)","O(log n)"],ans:1,topic:"Sorting"},
-      {q:"What is a BST (Binary Search Tree)?",opts:["Random binary tree","Left < root < right property","Balanced tree","None"],ans:1,topic:"Trees"},
-      {q:"What is inorder traversal of BST?",opts:["Random order","Sorted ascending order","Reverse sorted","None"],ans:1,topic:"Trees"},
-      {q:"What is the height of a balanced BST with n nodes?",opts:["O(n)","O(log n)","O(n²)","O(1)"],ans:1,topic:"Trees"},
-      {q:"What data structure does BFS use?",opts:["Stack","Queue","Array","Heap"],ans:1,topic:"Graphs"},
-      {q:"What data structure does DFS use?",opts:["Queue","Stack","Array","Heap"],ans:1,topic:"Graphs"},
-      {q:"What is a heap?",opts:["Random tree","Complete binary tree with heap property","Sorted array","None"],ans:1,topic:"Trees"},
-      {q:"What is a min-heap?",opts:["Max at root","Min at root, parent ≤ children","Random","None"],ans:1,topic:"Trees"},
-      {q:"What is collision in hashing?",opts:["Key not found","Two keys map to same bucket","Table overflow","None"],ans:1,topic:"Hashing"},
-      {q:"What is chaining in hash tables?",opts:["Linked chains","Handling collisions using linked list at each bucket","None","Array"],ans:1,topic:"Hashing"},
-      {q:"What is a doubly linked list?",opts:["Two lists","Each node has next and prev pointers","None","Circular list"],ans:1,topic:"Linked List"},
-      {q:"What is a circular linked list?",opts:["Loop array","Last node points back to first node","Two heads","None"],ans:1,topic:"Linked List"},
-      {q:"What is the two-pointer technique?",opts:["Using two arrays","Using two indices to solve array/string problems efficiently","None","Two loops"],ans:1,topic:"Techniques"},
-      {q:"What is the sliding window technique?",opts:["Animation","Maintaining a window that slides to solve subarray problems in O(n)","Two pointers","None"],ans:1,topic:"Techniques"},
-      {q:"What is a priority queue?",opts:["Ordered queue","Queue where elements have priority — highest served first","FIFO queue","None"],ans:1,topic:"Data Structures"},
-      {q:"What is a trie?",opts:["Tree for numbers","Prefix tree for efficient string searching","Hash table","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is topological sort?",opts:["Random sort","Linear ordering of DAG vertices such that edge u→v means u before v","None","BFS variant"],ans:1,topic:"Graphs"},
-      {q:"What is cycle detection in a graph?",opts:["Finding shortest path","Finding if graph contains a cycle","Sorting","None"],ans:1,topic:"Graphs"},
+      {q:"Time complexity of binary search?",opts:["O(n)","O(log n)","O(1)","O(n²)"],ans:1,topic:"Searching"},
+      {q:"Merge sort time complexity?",opts:["O(log n)","O(n²)","O(n)","O(n log n) always"],ans:3,topic:"Sorting"},
+      {q:"Quick sort average time complexity?",opts:["O(n²)","O(n log n)","O(log n)","O(n)"],ans:1,topic:"Sorting"},
+      {q:"What is a BST?",opts:["Left < root < right binary tree","None","Balanced tree","Random binary tree"],ans:0,topic:"Trees"},
+      {q:"Inorder traversal of BST gives?",opts:["Sorted ascending order","Random order","Reverse sorted","None"],ans:0,topic:"Trees"},
+      {q:"Height of balanced BST with n nodes?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:3,topic:"Trees"},
+      {q:"BFS uses which data structure?",opts:["Array","Heap","Queue","Stack"],ans:2,topic:"Graphs"},
+      {q:"DFS uses which data structure?",opts:["Queue","Heap","Stack or recursion","Array"],ans:2,topic:"Graphs"},
+      {q:"What is an AVL tree?",opts:["None","Self-balancing BST with height difference ≤ 1","Any BST","Red-black tree"],ans:1,topic:"Trees"},
+      {q:"What is rotation in AVL?",opts:["Operation to rebalance height after insert/delete","Tree rotation","Rotation sort","None"],ans:0,topic:"Trees"},
+      {q:"What is a Red-Black tree?",opts:["Colored tree","Self-balancing BST with color properties","None","AVL variant"],ans:1,topic:"Trees"},
+      {q:"What is a B-tree?",opts:["Balanced M-ary tree for disk storage","Binary tree","None","B+ tree"],ans:0,topic:"Trees"},
+      {q:"What is a trie?",opts:["None","Hash table","Prefix tree for efficient string operations","Tree for numbers"],ans:2,topic:"Advanced DS"},
+      {q:"Time to search in trie?",opts:["O(n)","O(L) where L is string length","O(log n)","O(1)"],ans:1,topic:"Advanced DS"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates","Segment array","Range array","None"],ans:0,topic:"Advanced DS"},
+      {q:"Segment tree query and update time?",opts:["O(n log n)","O(1) query","O(n) update","O(log n) both"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Fenwick tree (BIT)?",opts:["Binary tree","Binary Indexed Tree for prefix sum","None","Sorted array"],ans:1,topic:"Advanced DS"},
+      {q:"Fenwick tree query time?",opts:["O(n)","O(n log n)","O(log n)","O(1)"],ans:2,topic:"Advanced DS"},
+      {q:"What is Union-Find (DSU)?",opts:["Data structure for connected components","Sorting structure","None","Graph traversal"],ans:0,topic:"Advanced DS"},
+      {q:"What is path compression in DSU?",opts:["Flattens tree for near O(1) operations","Path finding","Compression algo","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is union by rank?",opts:["None","Weight union","Attach smaller tree under larger to keep height low","Random union"],ans:2,topic:"Advanced DS"},
+      {q:"DSU amortized complexity with both optimizations?",opts:["O(α(n)) ≈ O(1) practically","O(log n)","O(n)","O(1) exact"],ans:0,topic:"Advanced DS"},
+      {q:"What is a sparse table?",opts:["Empty table","None","Sparse array","O(1) range min/max after O(n log n) preprocessing"],ans:3,topic:"Advanced DS"},
+      {q:"What is binary lifting?",opts:["Binary jump","None","Ancestor list","Precomputing 2^k ancestors for LCA queries"],ans:3,topic:"Trees"},
+      {q:"LCA using binary lifting time?",opts:["O(n)","O(n log n)","O(log n) after O(n log n) preprocessing","O(1)"],ans:2,topic:"Trees"},
+      {q:"What is dynamic programming?",opts:["Recursive only","Greedy","Optimal substructure + memoize overlapping subproblems","None"],ans:2,topic:"DP"},
+      {q:"What is coin change problem?",opts:["Greedy only","Money problem","Min coins to make amount — classic DP","None"],ans:2,topic:"DP"},
+      {q:"What is LCS?",opts:["Shortest common","None","Longest Common Substring","Longest Common Subsequence — same order not contiguous"],ans:3,topic:"DP"},
+      {q:"LCS time complexity?",opts:["O(m*n²)","O(m*n)","O(m+n)","O(n)"],ans:1,topic:"DP"},
+      {q:"What is LIS?",opts:["Longest Increasing Subsequence","Longest In Sequence","Largest Item","None"],ans:0,topic:"DP"},
+      {q:"LIS in O(n log n) uses?",opts:["None","Greedy","DP table","Patience sorting / binary search"],ans:3,topic:"DP"},
+      {q:"What is 0/1 Knapsack?",opts:["Any knapsack","None","Fractional knapsack","Choose items with max value within weight limit"],ans:3,topic:"DP"},
+      {q:"What is fractional knapsack?",opts:["DP knapsack","0/1 knapsack","None","Can take fractions of items — greedy works"],ans:3,topic:"Greedy"},
+      {q:"What is edit distance?",opts:["String difference","Min operations to transform one string to another","None","Edit string"],ans:1,topic:"DP"},
+      {q:"What is matrix chain multiplication DP?",opts:["Chain DP","Matrix multiply","None","Min scalar multiplications for chain of matrices"],ans:3,topic:"DP"},
+      {q:"What is interval DP?",opts:["None","Segment DP","Range DP","DP on subproblems defined by intervals [i,j]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Mask DP","None","DP using bits to represent subset states","Bit DP"],ans:2,topic:"DP"},
+      {q:"What is digit DP?",opts:["DP counting numbers satisfying digit constraints","None","Number DP","Count DP"],ans:0,topic:"DP"},
+      {q:"What is Floyd-Warshall?",opts:["BFS all pairs","All-pairs shortest paths via DP O(V³)","Greedy path","None"],ans:1,topic:"Graphs"},
+      {q:"What is Bellman-Ford?",opts:["Single-source shortest path handling negative weights O(VE)","None","BFS variant","Dijkstra variant"],ans:0,topic:"Graphs"},
+      {q:"What is Dijkstra's time with priority queue?",opts:["O(VE)","O(V²)","O(E log V)","O((V+E) log V)"],ans:3,topic:"Graphs"},
+      {q:"What is A* algorithm?",opts:["None","Dijkstra with heuristic for faster pathfinding","DFS variant","Greedy path"],ans:1,topic:"Graphs"},
+      {q:"What is Ford-Fulkerson?",opts:["MST","Min cut","None","Max flow using DFS/BFS augmenting paths"],ans:3,topic:"Flows"},
+      {q:"What is Dinic's algorithm?",opts:["Efficient max flow O(V²E)","Ford-Fulkerson fast","BFS flow","None"],ans:0,topic:"Flows"},
+      {q:"Max flow min cut theorem?",opts:["Flow equals cut","Always equal","Maximum flow equals minimum cut capacity","None"],ans:2,topic:"Flows"},
+      {q:"What is bipartite matching?",opts:["Flow problem","Maximum matching in bipartite graph","Graph coloring","None"],ans:1,topic:"Flows"},
+      {q:"What is Hungarian algorithm?",opts:["Max flow","None","Min cost assignment in O(n³)","Bipartite match"],ans:2,topic:"Flows"},
+      {q:"What is two-pointer on sorted array?",opts:["None","Binary search","Hash map","O(n) way to find pair with target sum"],ans:3,topic:"Techniques"},
+      {q:"What is sliding window maximum?",opts:["Priority queue","Brute force","None","Monotonic deque for O(n) window max"],ans:3,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["Two pointer","Binary search","None","Split problem into halves — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["Math compression","Map large values to small range for arrays","Value mapping","None"],ans:1,topic:"Techniques"},
+      {q:"Time complexity of binary search?",opts:["O(n)","O(log n)","O(1)","O(n²)"],ans:1,topic:"Searching"},
+      {q:"Merge sort time complexity?",opts:["O(log n)","O(n²)","O(n)","O(n log n) always"],ans:3,topic:"Sorting"},
+      {q:"Quick sort average time complexity?",opts:["O(n²)","O(n log n)","O(log n)","O(n)"],ans:1,topic:"Sorting"},
+      {q:"What is a BST?",opts:["Left < root < right binary tree","None","Balanced tree","Random binary tree"],ans:0,topic:"Trees"},
+      {q:"Inorder traversal of BST gives?",opts:["Sorted ascending order","Random order","Reverse sorted","None"],ans:0,topic:"Trees"},
+      {q:"Height of balanced BST with n nodes?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:3,topic:"Trees"},
+      {q:"BFS uses which data structure?",opts:["Array","Heap","Queue","Stack"],ans:2,topic:"Graphs"},
+      {q:"DFS uses which data structure?",opts:["Queue","Heap","Stack or recursion","Array"],ans:2,topic:"Graphs"},
+      {q:"What is an AVL tree?",opts:["None","Self-balancing BST with height difference ≤ 1","Any BST","Red-black tree"],ans:1,topic:"Trees"},
+      {q:"What is rotation in AVL?",opts:["Operation to rebalance height after insert/delete","Tree rotation","Rotation sort","None"],ans:0,topic:"Trees"},
+      {q:"What is a Red-Black tree?",opts:["Colored tree","Self-balancing BST with color properties","None","AVL variant"],ans:1,topic:"Trees"},
+      {q:"What is a B-tree?",opts:["Balanced M-ary tree for disk storage","Binary tree","None","B+ tree"],ans:0,topic:"Trees"},
+      {q:"What is a trie?",opts:["None","Hash table","Prefix tree for efficient string operations","Tree for numbers"],ans:2,topic:"Advanced DS"},
+      {q:"Time to search in trie?",opts:["O(n)","O(L) where L is string length","O(log n)","O(1)"],ans:1,topic:"Advanced DS"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates","Segment array","Range array","None"],ans:0,topic:"Advanced DS"},
+      {q:"Segment tree query and update time?",opts:["O(n log n)","O(1) query","O(n) update","O(log n) both"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Fenwick tree (BIT)?",opts:["Binary tree","Binary Indexed Tree for prefix sum","None","Sorted array"],ans:1,topic:"Advanced DS"},
+      {q:"Fenwick tree query time?",opts:["O(n)","O(n log n)","O(log n)","O(1)"],ans:2,topic:"Advanced DS"},
+      {q:"What is Union-Find (DSU)?",opts:["Data structure for connected components","Sorting structure","None","Graph traversal"],ans:0,topic:"Advanced DS"},
+      {q:"What is path compression in DSU?",opts:["Flattens tree for near O(1) operations","Path finding","Compression algo","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is union by rank?",opts:["None","Weight union","Attach smaller tree under larger to keep height low","Random union"],ans:2,topic:"Advanced DS"},
+      {q:"DSU amortized complexity with both optimizations?",opts:["O(α(n)) ≈ O(1) practically","O(log n)","O(n)","O(1) exact"],ans:0,topic:"Advanced DS"},
+      {q:"What is a sparse table?",opts:["Empty table","None","Sparse array","O(1) range min/max after O(n log n) preprocessing"],ans:3,topic:"Advanced DS"},
+      {q:"What is binary lifting?",opts:["Binary jump","None","Ancestor list","Precomputing 2^k ancestors for LCA queries"],ans:3,topic:"Trees"},
+      {q:"LCA using binary lifting time?",opts:["O(n)","O(n log n)","O(log n) after O(n log n) preprocessing","O(1)"],ans:2,topic:"Trees"},
+      {q:"What is dynamic programming?",opts:["Recursive only","Greedy","Optimal substructure + memoize overlapping subproblems","None"],ans:2,topic:"DP"},
+      {q:"What is coin change problem?",opts:["Greedy only","Money problem","Min coins to make amount — classic DP","None"],ans:2,topic:"DP"},
+      {q:"What is LCS?",opts:["Shortest common","None","Longest Common Substring","Longest Common Subsequence — same order not contiguous"],ans:3,topic:"DP"},
+      {q:"LCS time complexity?",opts:["O(m*n²)","O(m*n)","O(m+n)","O(n)"],ans:1,topic:"DP"},
+      {q:"What is LIS?",opts:["Longest Increasing Subsequence","Longest In Sequence","Largest Item","None"],ans:0,topic:"DP"},
+      {q:"LIS in O(n log n) uses?",opts:["None","Greedy","DP table","Patience sorting / binary search"],ans:3,topic:"DP"},
+      {q:"What is 0/1 Knapsack?",opts:["Any knapsack","None","Fractional knapsack","Choose items with max value within weight limit"],ans:3,topic:"DP"},
+      {q:"What is fractional knapsack?",opts:["DP knapsack","0/1 knapsack","None","Can take fractions of items — greedy works"],ans:3,topic:"Greedy"},
+      {q:"What is edit distance?",opts:["String difference","Min operations to transform one string to another","None","Edit string"],ans:1,topic:"DP"},
+      {q:"What is matrix chain multiplication DP?",opts:["Chain DP","Matrix multiply","None","Min scalar multiplications for chain of matrices"],ans:3,topic:"DP"},
+      {q:"What is interval DP?",opts:["None","Segment DP","Range DP","DP on subproblems defined by intervals [i,j]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Mask DP","None","DP using bits to represent subset states","Bit DP"],ans:2,topic:"DP"},
+      {q:"What is digit DP?",opts:["DP counting numbers satisfying digit constraints","None","Number DP","Count DP"],ans:0,topic:"DP"},
+      {q:"What is Floyd-Warshall?",opts:["BFS all pairs","All-pairs shortest paths via DP O(V³)","Greedy path","None"],ans:1,topic:"Graphs"},
+      {q:"What is Bellman-Ford?",opts:["Single-source shortest path handling negative weights O(VE)","None","BFS variant","Dijkstra variant"],ans:0,topic:"Graphs"},
+      {q:"What is Dijkstra's time with priority queue?",opts:["O(VE)","O(V²)","O(E log V)","O((V+E) log V)"],ans:3,topic:"Graphs"},
+      {q:"What is A* algorithm?",opts:["None","Dijkstra with heuristic for faster pathfinding","DFS variant","Greedy path"],ans:1,topic:"Graphs"},
+      {q:"What is Ford-Fulkerson?",opts:["MST","Min cut","None","Max flow using DFS/BFS augmenting paths"],ans:3,topic:"Flows"},
+      {q:"What is Dinic's algorithm?",opts:["Efficient max flow O(V²E)","Ford-Fulkerson fast","BFS flow","None"],ans:0,topic:"Flows"},
+      {q:"Max flow min cut theorem?",opts:["Flow equals cut","Always equal","Maximum flow equals minimum cut capacity","None"],ans:2,topic:"Flows"},
+      {q:"What is bipartite matching?",opts:["Flow problem","Maximum matching in bipartite graph","Graph coloring","None"],ans:1,topic:"Flows"},
+      {q:"What is Hungarian algorithm?",opts:["Max flow","None","Min cost assignment in O(n³)","Bipartite match"],ans:2,topic:"Flows"},
+      {q:"What is two-pointer on sorted array?",opts:["None","Binary search","Hash map","O(n) way to find pair with target sum"],ans:3,topic:"Techniques"},
+      {q:"What is sliding window maximum?",opts:["Priority queue","Brute force","None","Monotonic deque for O(n) window max"],ans:3,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["Two pointer","Binary search","None","Split problem into halves — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["Math compression","Map large values to small range for arrays","Value mapping","None"],ans:1,topic:"Techniques"},
+      {q:"Time complexity of binary search?",opts:["O(n)","O(log n)","O(1)","O(n²)"],ans:1,topic:"Searching"},
+      {q:"Merge sort time complexity?",opts:["O(log n)","O(n²)","O(n)","O(n log n) always"],ans:3,topic:"Sorting"},
+      {q:"Quick sort average time complexity?",opts:["O(n²)","O(n log n)","O(log n)","O(n)"],ans:1,topic:"Sorting"},
+      {q:"What is a BST?",opts:["Left < root < right binary tree","None","Balanced tree","Random binary tree"],ans:0,topic:"Trees"},
+      {q:"Inorder traversal of BST gives?",opts:["Sorted ascending order","Random order","Reverse sorted","None"],ans:0,topic:"Trees"},
+      {q:"Height of balanced BST with n nodes?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:3,topic:"Trees"},
+      {q:"BFS uses which data structure?",opts:["Array","Heap","Queue","Stack"],ans:2,topic:"Graphs"},
+      {q:"DFS uses which data structure?",opts:["Queue","Heap","Stack or recursion","Array"],ans:2,topic:"Graphs"},
+      {q:"What is an AVL tree?",opts:["None","Self-balancing BST with height difference ≤ 1","Any BST","Red-black tree"],ans:1,topic:"Trees"},
+      {q:"What is rotation in AVL?",opts:["Operation to rebalance height after insert/delete","Tree rotation","Rotation sort","None"],ans:0,topic:"Trees"},
+      {q:"What is a Red-Black tree?",opts:["Colored tree","Self-balancing BST with color properties","None","AVL variant"],ans:1,topic:"Trees"},
+      {q:"What is a B-tree?",opts:["Balanced M-ary tree for disk storage","Binary tree","None","B+ tree"],ans:0,topic:"Trees"},
+      {q:"What is a trie?",opts:["None","Hash table","Prefix tree for efficient string operations","Tree for numbers"],ans:2,topic:"Advanced DS"},
+      {q:"Time to search in trie?",opts:["O(n)","O(L) where L is string length","O(log n)","O(1)"],ans:1,topic:"Advanced DS"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates","Segment array","Range array","None"],ans:0,topic:"Advanced DS"},
+      {q:"Segment tree query and update time?",opts:["O(n log n)","O(1) query","O(n) update","O(log n) both"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Fenwick tree (BIT)?",opts:["Binary tree","Binary Indexed Tree for prefix sum","None","Sorted array"],ans:1,topic:"Advanced DS"},
+      {q:"Fenwick tree query time?",opts:["O(n)","O(n log n)","O(log n)","O(1)"],ans:2,topic:"Advanced DS"},
+      {q:"What is Union-Find (DSU)?",opts:["Data structure for connected components","Sorting structure","None","Graph traversal"],ans:0,topic:"Advanced DS"},
+      {q:"What is path compression in DSU?",opts:["Flattens tree for near O(1) operations","Path finding","Compression algo","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is union by rank?",opts:["None","Weight union","Attach smaller tree under larger to keep height low","Random union"],ans:2,topic:"Advanced DS"},
+      {q:"DSU amortized complexity with both optimizations?",opts:["O(α(n)) ≈ O(1) practically","O(log n)","O(n)","O(1) exact"],ans:0,topic:"Advanced DS"},
+      {q:"What is a sparse table?",opts:["Empty table","None","Sparse array","O(1) range min/max after O(n log n) preprocessing"],ans:3,topic:"Advanced DS"},
+      {q:"What is binary lifting?",opts:["Binary jump","None","Ancestor list","Precomputing 2^k ancestors for LCA queries"],ans:3,topic:"Trees"},
+      {q:"LCA using binary lifting time?",opts:["O(n)","O(n log n)","O(log n) after O(n log n) preprocessing","O(1)"],ans:2,topic:"Trees"},
+      {q:"What is dynamic programming?",opts:["Recursive only","Greedy","Optimal substructure + memoize overlapping subproblems","None"],ans:2,topic:"DP"},
+      {q:"What is coin change problem?",opts:["Greedy only","Money problem","Min coins to make amount — classic DP","None"],ans:2,topic:"DP"},
+      {q:"What is LCS?",opts:["Shortest common","None","Longest Common Substring","Longest Common Subsequence — same order not contiguous"],ans:3,topic:"DP"},
+      {q:"LCS time complexity?",opts:["O(m*n²)","O(m*n)","O(m+n)","O(n)"],ans:1,topic:"DP"},
+      {q:"What is LIS?",opts:["Longest Increasing Subsequence","Longest In Sequence","Largest Item","None"],ans:0,topic:"DP"},
+      {q:"LIS in O(n log n) uses?",opts:["None","Greedy","DP table","Patience sorting / binary search"],ans:3,topic:"DP"},
+      {q:"What is 0/1 Knapsack?",opts:["Any knapsack","None","Fractional knapsack","Choose items with max value within weight limit"],ans:3,topic:"DP"},
+      {q:"What is fractional knapsack?",opts:["DP knapsack","0/1 knapsack","None","Can take fractions of items — greedy works"],ans:3,topic:"Greedy"},
+      {q:"What is edit distance?",opts:["String difference","Min operations to transform one string to another","None","Edit string"],ans:1,topic:"DP"},
+      {q:"What is matrix chain multiplication DP?",opts:["Chain DP","Matrix multiply","None","Min scalar multiplications for chain of matrices"],ans:3,topic:"DP"},
+      {q:"What is interval DP?",opts:["None","Segment DP","Range DP","DP on subproblems defined by intervals [i,j]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Mask DP","None","DP using bits to represent subset states","Bit DP"],ans:2,topic:"DP"},
+      {q:"What is digit DP?",opts:["DP counting numbers satisfying digit constraints","None","Number DP","Count DP"],ans:0,topic:"DP"},
+      {q:"What is Floyd-Warshall?",opts:["BFS all pairs","All-pairs shortest paths via DP O(V³)","Greedy path","None"],ans:1,topic:"Graphs"},
+      {q:"What is Bellman-Ford?",opts:["Single-source shortest path handling negative weights O(VE)","None","BFS variant","Dijkstra variant"],ans:0,topic:"Graphs"},
+      {q:"What is Dijkstra's time with priority queue?",opts:["O(VE)","O(V²)","O(E log V)","O((V+E) log V)"],ans:3,topic:"Graphs"},
+      {q:"What is A* algorithm?",opts:["None","Dijkstra with heuristic for faster pathfinding","DFS variant","Greedy path"],ans:1,topic:"Graphs"},
+      {q:"What is Ford-Fulkerson?",opts:["MST","Min cut","None","Max flow using DFS/BFS augmenting paths"],ans:3,topic:"Flows"},
+      {q:"What is Dinic's algorithm?",opts:["Efficient max flow O(V²E)","Ford-Fulkerson fast","BFS flow","None"],ans:0,topic:"Flows"},
+      {q:"Max flow min cut theorem?",opts:["Flow equals cut","Always equal","Maximum flow equals minimum cut capacity","None"],ans:2,topic:"Flows"},
+      {q:"What is bipartite matching?",opts:["Flow problem","Maximum matching in bipartite graph","Graph coloring","None"],ans:1,topic:"Flows"},
+      {q:"What is Hungarian algorithm?",opts:["Max flow","None","Min cost assignment in O(n³)","Bipartite match"],ans:2,topic:"Flows"},
+      {q:"What is two-pointer on sorted array?",opts:["None","Binary search","Hash map","O(n) way to find pair with target sum"],ans:3,topic:"Techniques"},
+      {q:"What is sliding window maximum?",opts:["Priority queue","Brute force","None","Monotonic deque for O(n) window max"],ans:3,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["Two pointer","Binary search","None","Split problem into halves — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["Math compression","Map large values to small range for arrays","Value mapping","None"],ans:1,topic:"Techniques"},
+      {q:"Time complexity of binary search?",opts:["O(n)","O(log n)","O(1)","O(n²)"],ans:1,topic:"Searching"},
+      {q:"Merge sort time complexity?",opts:["O(log n)","O(n²)","O(n)","O(n log n) always"],ans:3,topic:"Sorting"},
+      {q:"Quick sort average time complexity?",opts:["O(n²)","O(n log n)","O(log n)","O(n)"],ans:1,topic:"Sorting"},
+      {q:"What is a BST?",opts:["Left < root < right binary tree","None","Balanced tree","Random binary tree"],ans:0,topic:"Trees"},
+      {q:"Inorder traversal of BST gives?",opts:["Sorted ascending order","Random order","Reverse sorted","None"],ans:0,topic:"Trees"},
+      {q:"Height of balanced BST with n nodes?",opts:["O(n²)","O(1)","O(n)","O(log n)"],ans:3,topic:"Trees"},
+      {q:"BFS uses which data structure?",opts:["Array","Heap","Queue","Stack"],ans:2,topic:"Graphs"},
+      {q:"DFS uses which data structure?",opts:["Queue","Heap","Stack or recursion","Array"],ans:2,topic:"Graphs"},
+      {q:"What is an AVL tree?",opts:["None","Self-balancing BST with height difference ≤ 1","Any BST","Red-black tree"],ans:1,topic:"Trees"},
+      {q:"What is rotation in AVL?",opts:["Operation to rebalance height after insert/delete","Tree rotation","Rotation sort","None"],ans:0,topic:"Trees"},
+      {q:"What is a Red-Black tree?",opts:["Colored tree","Self-balancing BST with color properties","None","AVL variant"],ans:1,topic:"Trees"},
+      {q:"What is a B-tree?",opts:["Balanced M-ary tree for disk storage","Binary tree","None","B+ tree"],ans:0,topic:"Trees"},
+      {q:"What is a trie?",opts:["None","Hash table","Prefix tree for efficient string operations","Tree for numbers"],ans:2,topic:"Advanced DS"},
+      {q:"Time to search in trie?",opts:["O(n)","O(L) where L is string length","O(log n)","O(1)"],ans:1,topic:"Advanced DS"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates","Segment array","Range array","None"],ans:0,topic:"Advanced DS"},
+      {q:"Segment tree query and update time?",opts:["O(n log n)","O(1) query","O(n) update","O(log n) both"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Fenwick tree (BIT)?",opts:["Binary tree","Binary Indexed Tree for prefix sum","None","Sorted array"],ans:1,topic:"Advanced DS"},
+      {q:"Fenwick tree query time?",opts:["O(n)","O(n log n)","O(log n)","O(1)"],ans:2,topic:"Advanced DS"},
+      {q:"What is Union-Find (DSU)?",opts:["Data structure for connected components","Sorting structure","None","Graph traversal"],ans:0,topic:"Advanced DS"},
+      {q:"What is path compression in DSU?",opts:["Flattens tree for near O(1) operations","Path finding","Compression algo","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is union by rank?",opts:["None","Weight union","Attach smaller tree under larger to keep height low","Random union"],ans:2,topic:"Advanced DS"},
+      {q:"DSU amortized complexity with both optimizations?",opts:["O(α(n)) ≈ O(1) practically","O(log n)","O(n)","O(1) exact"],ans:0,topic:"Advanced DS"},
+      {q:"What is a sparse table?",opts:["Empty table","None","Sparse array","O(1) range min/max after O(n log n) preprocessing"],ans:3,topic:"Advanced DS"},
+      {q:"What is binary lifting?",opts:["Binary jump","None","Ancestor list","Precomputing 2^k ancestors for LCA queries"],ans:3,topic:"Trees"},
+      {q:"LCA using binary lifting time?",opts:["O(n)","O(n log n)","O(log n) after O(n log n) preprocessing","O(1)"],ans:2,topic:"Trees"},
+      {q:"What is dynamic programming?",opts:["Recursive only","Greedy","Optimal substructure + memoize overlapping subproblems","None"],ans:2,topic:"DP"},
+      {q:"What is coin change problem?",opts:["Greedy only","Money problem","Min coins to make amount — classic DP","None"],ans:2,topic:"DP"},
+      {q:"What is LCS?",opts:["Shortest common","None","Longest Common Substring","Longest Common Subsequence — same order not contiguous"],ans:3,topic:"DP"},
+      {q:"LCS time complexity?",opts:["O(m*n²)","O(m*n)","O(m+n)","O(n)"],ans:1,topic:"DP"},
+      {q:"What is LIS?",opts:["Longest Increasing Subsequence","Longest In Sequence","Largest Item","None"],ans:0,topic:"DP"},
+      {q:"LIS in O(n log n) uses?",opts:["None","Greedy","DP table","Patience sorting / binary search"],ans:3,topic:"DP"},
+      {q:"What is 0/1 Knapsack?",opts:["Any knapsack","None","Fractional knapsack","Choose items with max value within weight limit"],ans:3,topic:"DP"},
+      {q:"What is fractional knapsack?",opts:["DP knapsack","0/1 knapsack","None","Can take fractions of items — greedy works"],ans:3,topic:"Greedy"},
+      {q:"What is edit distance?",opts:["String difference","Min operations to transform one string to another","None","Edit string"],ans:1,topic:"DP"},
+      {q:"What is matrix chain multiplication DP?",opts:["Chain DP","Matrix multiply","None","Min scalar multiplications for chain of matrices"],ans:3,topic:"DP"},
+      {q:"What is interval DP?",opts:["None","Segment DP","Range DP","DP on subproblems defined by intervals [i,j]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Mask DP","None","DP using bits to represent subset states","Bit DP"],ans:2,topic:"DP"},
+      {q:"What is digit DP?",opts:["DP counting numbers satisfying digit constraints","None","Number DP","Count DP"],ans:0,topic:"DP"},
+      {q:"What is Floyd-Warshall?",opts:["BFS all pairs","All-pairs shortest paths via DP O(V³)","Greedy path","None"],ans:1,topic:"Graphs"},
+      {q:"What is Bellman-Ford?",opts:["Single-source shortest path handling negative weights O(VE)","None","BFS variant","Dijkstra variant"],ans:0,topic:"Graphs"},
+      {q:"What is Dijkstra's time with priority queue?",opts:["O(VE)","O(V²)","O(E log V)","O((V+E) log V)"],ans:3,topic:"Graphs"},
+      {q:"What is A* algorithm?",opts:["None","Dijkstra with heuristic for faster pathfinding","DFS variant","Greedy path"],ans:1,topic:"Graphs"},
+      {q:"What is Ford-Fulkerson?",opts:["MST","Min cut","None","Max flow using DFS/BFS augmenting paths"],ans:3,topic:"Flows"},
+      {q:"What is Dinic's algorithm?",opts:["Efficient max flow O(V²E)","Ford-Fulkerson fast","BFS flow","None"],ans:0,topic:"Flows"},
+      {q:"Max flow min cut theorem?",opts:["Flow equals cut","Always equal","Maximum flow equals minimum cut capacity","None"],ans:2,topic:"Flows"},
+      {q:"What is bipartite matching?",opts:["Flow problem","Maximum matching in bipartite graph","Graph coloring","None"],ans:1,topic:"Flows"},
+      {q:"What is Hungarian algorithm?",opts:["Max flow","None","Min cost assignment in O(n³)","Bipartite match"],ans:2,topic:"Flows"},
     ],
     advanced:[
-      {q:"What is dynamic programming?",opts:["Procedural programming","Optimization technique: break into subproblems, cache results","None","Greedy"],ans:1,topic:"DP"},
-      {q:"What is memoization vs tabulation?",opts:["Same","Memoization: top-down with cache. Tabulation: bottom-up with table","Tabulation is top-down","None"],ans:1,topic:"DP"},
-      {q:"What is the 0/1 Knapsack problem?",opts:["Shortest path","Choose items with max value within weight limit — DP solution","None","Graph problem"],ans:1,topic:"DP"},
-      {q:"What is LCS?",opts:["Longest Common Substring","Longest Common Subsequence — characters in same order but not necessarily contiguous","None","Shortest path"],ans:1,topic:"DP"},
-      {q:"What is the greedy algorithm approach?",opts:["Always optimal","Make locally optimal choice at each step — works when local=global optimum","None","Always fails"],ans:1,topic:"Greedy"},
-      {q:"What is Dijkstra's algorithm?",opts:["MST algorithm","Greedy shortest path from source to all vertices (non-negative weights)","DFS variant","None"],ans:1,topic:"Graphs"},
-      {q:"What is Bellman-Ford vs Dijkstra?",opts:["Same","Bellman-Ford handles negative weights, Dijkstra doesn't","Dijkstra handles negative","None"],ans:1,topic:"Graphs"},
-      {q:"What is Kruskal's algorithm?",opts:["Shortest path","Greedy MST algorithm — pick edges in order of weight, skip if cycle","None","BFS"],ans:1,topic:"Graphs"},
-      {q:"What is Union-Find / Disjoint Set?",opts:["Sorting algorithm","Data structure for tracking connected components — efficient union/find","None","Graph traversal"],ans:1,topic:"Advanced DS"},
-      {q:"What is a segment tree?",opts:["Binary tree for sorting","Tree for range queries and point updates in O(log n)","Hash table","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is a Fenwick tree (BIT)?",opts:["Balanced BST","Binary Indexed Tree for efficient prefix sum queries/updates","None","Segment tree"],ans:1,topic:"Advanced DS"},
-      {q:"What is Floyd-Warshall?",opts:["Single-source shortest path","All-pairs shortest paths using DP — O(V³)","MST","None"],ans:1,topic:"Graphs"},
-      {q:"What is backtracking?",opts:["Greedy approach","Try all possibilities, undo (backtrack) on failure — N-Queens, Sudoku","None","DP"],ans:1,topic:"Backtracking"},
-      {q:"What is the time complexity of heap sort?",opts:["O(n²)","O(n log n)","O(n)","O(log n)"],ans:1,topic:"Sorting"},
-      {q:"What is amortized analysis?",opts:["Worst case only","Average cost per operation over a sequence of operations","Best case only","None"],ans:1,topic:"Complexity"},
-      {q:"What is a balanced BST and why important?",opts:["Random BST","Height O(log n) guaranteed — AVL/Red-Black tree — prevents O(n) operations","None","Sorted array"],ans:1,topic:"Trees"},
-      {q:"What is the master theorem?",opts:["Algorithm","Formula for solving divide-and-conquer recurrences to find time complexity","Sorting method","None"],ans:1,topic:"Complexity"},
-      {q:"What is KMP algorithm?",opts:["Graph algorithm","Knuth-Morris-Pratt: O(n+m) string matching using failure function","Sorting","None"],ans:1,topic:"String Algorithms"},
-      {q:"What is a monotonic stack?",opts:["Sorted stack","Stack maintaining monotonic order — used for next greater element","None","Priority queue"],ans:1,topic:"Techniques"},
-      {q:"What is bitmasking in DP?",opts:["Bit operations only","Using bits to represent subsets in DP — exponential states to bitmask","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Heavy-Light Decomposition?",opts:["None","Decomposes tree into chains for O(log²n) path queries","None","Graph technique"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","Decompose tree at centroid for path/distance problems","Tree center","None"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Euler Tour on tree?",opts:["None","Graph tour","Linearizes tree for range query subtrees","Tree traversal"],ans:2,topic:"Advanced Trees"},
+      {q:"What is LCA (Lowest Common Ancestor)?",opts:["None","Common node","Deepest node that is ancestor of both nodes","Lowest node"],ans:2,topic:"Trees"},
+      {q:"What is a Persistent Data Structure?",opts:["None","Immutable DS","Retains all previous versions on updates","Versioned DS"],ans:2,topic:"Advanced DS"},
+      {q:"What is a Persistent Segment Tree?",opts:["None","Segment tree with version history O(log n) per update","None","Saved tree"],ans:1,topic:"Advanced DS"},
+      {q:"What is sqrt decomposition?",opts:["Divide into √n blocks for O(√n) tradeoff","None","Math operation","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is Mo's algorithm?",opts:["Greedy","None","None","Offline range queries sorted by sqrt blocks O((n+q)√n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap?",opts:["BST + heap randomized balanced tree","Tree type","None","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is a Splay tree?",opts:["None","BST variant","Splay sort","Self-adjusting BST via splaying accessed node"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Skip list?",opts:["Probabilistic multi-level linked list for O(log n)","Linked list","None","BST"],ans:0,topic:"Advanced DS"},
+      {q:"What is a van Emde Boas tree?",opts:["Integer tree","vEB class","O(log log U) operations for integers in universe U","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Z-algorithm?",opts:["Prefix search","Z function","O(n) prefix match lengths for each position","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is KMP?",opts:["String match","None","O(n+m) pattern matching using failure function","Knuth search"],ans:2,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick?",opts:["AC automaton","Multi-pattern matching using automaton O(n+m+k)","None","AhoC search"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Array?",opts:["String array","Sorted suffixes for O(log n) pattern search","Suffix tree","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Automaton?",opts:["String DFA","Suffix tree","Compact structure representing all substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","None","Palindrome DP"],ans:1,topic:"String Algorithms"},
+      {q:"What is Convex Hull Trick in DP?",opts:["None","Optimizes linear transition DP using convex hull","Geometry trick","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","O(n) optimization for totally monotone matrices","Matrix algo"],ans:2,topic:"Advanced DP"},
+      {q:"What is divide and conquer DP?",opts:["D&C sorting","Reduces O(n²) DP when opt is monotone to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["Sorting","None","None","DP optimization when opt(i,j) is monotone O(n²)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Matrix Exponentiation?",opts:["None","Matrix power","Compute recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion principle?",opts:["Math rule","None","Count union via alternating sum of intersections","None"],ans:2,topic:"Math"},
+      {q:"What is Euler's totient function?",opts:["None","Count integers ≤ n coprime to n","None","Euler function"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem?",opts:["Fermat theorem","None","a^(p-1) ≡ 1 mod p for prime p","None"],ans:2,topic:"Math"},
+      {q:"What is modular inverse?",opts:["None","Inverse mod","x such that a*x ≡ 1 mod m","None"],ans:2,topic:"Math"},
+      {q:"What is Chinese Remainder Theorem?",opts:["System of congruences with coprime moduli","None","CRT","None"],ans:0,topic:"Math"},
+      {q:"What is Sprague-Grundy theorem?",opts:["XOR of Grundy values determines game winner","None","Game theorem","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim game?",opts:["Take objects from piles — XOR determines winner","Nim class","None","None"],ans:0,topic:"Game Theory"},
+      {q:"What is a lichao segment tree?",opts:["None","Line tree","Segment tree variant for line minimization","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is offline vs online algorithm?",opts:["None","Query type","Offline knows all queries, online processes one by one","None"],ans:2,topic:"Algorithms"},
+      {q:"What is randomized algorithm?",opts:["None","Uses randomness for expected performance","Random algo","None"],ans:1,topic:"Algorithms"},
+      {q:"What is Las Vegas algorithm?",opts:["None","Always correct, randomized running time","None","Monte Carlo"],ans:1,topic:"Algorithms"},
+      {q:"What is Monte Carlo algorithm?",opts:["None","None","Las Vegas","Fast but may be incorrect with small probability"],ans:3,topic:"Algorithms"},
+      {q:"What is approximation algorithm?",opts:["Approx class","None","Guaranteed bound on solution quality vs optimal","None"],ans:2,topic:"Algorithms"},
+      {q:"What is FPT algorithm?",opts:["None","Fast poly time","Fixed Parameter Tractable for parameterized problems","None"],ans:2,topic:"Algorithms"},
+      {q:"What is NP-hard?",opts:["At least as hard as NP problems, no known poly algorithm","P hard","None","NP complete"],ans:0,topic:"Complexity"},
+      {q:"What is NP-complete?",opts:["In NP and NP-hard — hardest problems in NP","None","NP hard","P complete"],ans:0,topic:"Complexity"},
+      {q:"What is P vs NP?",opts:["None","P equals NP","Greatest open problem — can NP be solved in poly time?","None"],ans:2,topic:"Complexity"},
+      {q:"What is a reduction?",opts:["None","None","Transforming one problem to another to prove hardness","Problem mapping"],ans:2,topic:"Complexity"},
+      {q:"What is Heavy-Light Decomposition?",opts:["None","Decomposes tree into chains for O(log²n) path queries","None","Graph technique"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","Decompose tree at centroid for path/distance problems","Tree center","None"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Euler Tour on tree?",opts:["None","Graph tour","Linearizes tree for range query subtrees","Tree traversal"],ans:2,topic:"Advanced Trees"},
+      {q:"What is LCA (Lowest Common Ancestor)?",opts:["None","Common node","Deepest node that is ancestor of both nodes","Lowest node"],ans:2,topic:"Trees"},
+      {q:"What is a Persistent Data Structure?",opts:["None","Immutable DS","Retains all previous versions on updates","Versioned DS"],ans:2,topic:"Advanced DS"},
+      {q:"What is a Persistent Segment Tree?",opts:["None","Segment tree with version history O(log n) per update","None","Saved tree"],ans:1,topic:"Advanced DS"},
+      {q:"What is sqrt decomposition?",opts:["Divide into √n blocks for O(√n) tradeoff","None","Math operation","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is Mo's algorithm?",opts:["Greedy","None","None","Offline range queries sorted by sqrt blocks O((n+q)√n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap?",opts:["BST + heap randomized balanced tree","Tree type","None","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is a Splay tree?",opts:["None","BST variant","Splay sort","Self-adjusting BST via splaying accessed node"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Skip list?",opts:["Probabilistic multi-level linked list for O(log n)","Linked list","None","BST"],ans:0,topic:"Advanced DS"},
+      {q:"What is a van Emde Boas tree?",opts:["Integer tree","vEB class","O(log log U) operations for integers in universe U","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Z-algorithm?",opts:["Prefix search","Z function","O(n) prefix match lengths for each position","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is KMP?",opts:["String match","None","O(n+m) pattern matching using failure function","Knuth search"],ans:2,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick?",opts:["AC automaton","Multi-pattern matching using automaton O(n+m+k)","None","AhoC search"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Array?",opts:["String array","Sorted suffixes for O(log n) pattern search","Suffix tree","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Automaton?",opts:["String DFA","Suffix tree","Compact structure representing all substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","None","Palindrome DP"],ans:1,topic:"String Algorithms"},
+      {q:"What is Convex Hull Trick in DP?",opts:["None","Optimizes linear transition DP using convex hull","Geometry trick","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","O(n) optimization for totally monotone matrices","Matrix algo"],ans:2,topic:"Advanced DP"},
+      {q:"What is divide and conquer DP?",opts:["D&C sorting","Reduces O(n²) DP when opt is monotone to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["Sorting","None","None","DP optimization when opt(i,j) is monotone O(n²)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Matrix Exponentiation?",opts:["None","Matrix power","Compute recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion principle?",opts:["Math rule","None","Count union via alternating sum of intersections","None"],ans:2,topic:"Math"},
+      {q:"What is Euler's totient function?",opts:["None","Count integers ≤ n coprime to n","None","Euler function"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem?",opts:["Fermat theorem","None","a^(p-1) ≡ 1 mod p for prime p","None"],ans:2,topic:"Math"},
+      {q:"What is modular inverse?",opts:["None","Inverse mod","x such that a*x ≡ 1 mod m","None"],ans:2,topic:"Math"},
+      {q:"What is Chinese Remainder Theorem?",opts:["System of congruences with coprime moduli","None","CRT","None"],ans:0,topic:"Math"},
+      {q:"What is Sprague-Grundy theorem?",opts:["XOR of Grundy values determines game winner","None","Game theorem","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim game?",opts:["Take objects from piles — XOR determines winner","Nim class","None","None"],ans:0,topic:"Game Theory"},
+      {q:"What is a lichao segment tree?",opts:["None","Line tree","Segment tree variant for line minimization","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is offline vs online algorithm?",opts:["None","Query type","Offline knows all queries, online processes one by one","None"],ans:2,topic:"Algorithms"},
+      {q:"What is randomized algorithm?",opts:["None","Uses randomness for expected performance","Random algo","None"],ans:1,topic:"Algorithms"},
+      {q:"What is Las Vegas algorithm?",opts:["None","Always correct, randomized running time","None","Monte Carlo"],ans:1,topic:"Algorithms"},
+      {q:"What is Monte Carlo algorithm?",opts:["None","None","Las Vegas","Fast but may be incorrect with small probability"],ans:3,topic:"Algorithms"},
+      {q:"What is approximation algorithm?",opts:["Approx class","None","Guaranteed bound on solution quality vs optimal","None"],ans:2,topic:"Algorithms"},
+      {q:"What is FPT algorithm?",opts:["None","Fast poly time","Fixed Parameter Tractable for parameterized problems","None"],ans:2,topic:"Algorithms"},
+      {q:"What is NP-hard?",opts:["At least as hard as NP problems, no known poly algorithm","P hard","None","NP complete"],ans:0,topic:"Complexity"},
+      {q:"What is NP-complete?",opts:["In NP and NP-hard — hardest problems in NP","None","NP hard","P complete"],ans:0,topic:"Complexity"},
+      {q:"What is P vs NP?",opts:["None","P equals NP","Greatest open problem — can NP be solved in poly time?","None"],ans:2,topic:"Complexity"},
+      {q:"What is a reduction?",opts:["None","None","Transforming one problem to another to prove hardness","Problem mapping"],ans:2,topic:"Complexity"},
+      {q:"What is Heavy-Light Decomposition?",opts:["None","Decomposes tree into chains for O(log²n) path queries","None","Graph technique"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","Decompose tree at centroid for path/distance problems","Tree center","None"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Euler Tour on tree?",opts:["None","Graph tour","Linearizes tree for range query subtrees","Tree traversal"],ans:2,topic:"Advanced Trees"},
+      {q:"What is LCA (Lowest Common Ancestor)?",opts:["None","Common node","Deepest node that is ancestor of both nodes","Lowest node"],ans:2,topic:"Trees"},
+      {q:"What is a Persistent Data Structure?",opts:["None","Immutable DS","Retains all previous versions on updates","Versioned DS"],ans:2,topic:"Advanced DS"},
+      {q:"What is a Persistent Segment Tree?",opts:["None","Segment tree with version history O(log n) per update","None","Saved tree"],ans:1,topic:"Advanced DS"},
+      {q:"What is sqrt decomposition?",opts:["Divide into √n blocks for O(√n) tradeoff","None","Math operation","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is Mo's algorithm?",opts:["Greedy","None","None","Offline range queries sorted by sqrt blocks O((n+q)√n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap?",opts:["BST + heap randomized balanced tree","Tree type","None","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is a Splay tree?",opts:["None","BST variant","Splay sort","Self-adjusting BST via splaying accessed node"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Skip list?",opts:["Probabilistic multi-level linked list for O(log n)","Linked list","None","BST"],ans:0,topic:"Advanced DS"},
+      {q:"What is a van Emde Boas tree?",opts:["Integer tree","vEB class","O(log log U) operations for integers in universe U","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Z-algorithm?",opts:["Prefix search","Z function","O(n) prefix match lengths for each position","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is KMP?",opts:["String match","None","O(n+m) pattern matching using failure function","Knuth search"],ans:2,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick?",opts:["AC automaton","Multi-pattern matching using automaton O(n+m+k)","None","AhoC search"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Array?",opts:["String array","Sorted suffixes for O(log n) pattern search","Suffix tree","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Automaton?",opts:["String DFA","Suffix tree","Compact structure representing all substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","None","Palindrome DP"],ans:1,topic:"String Algorithms"},
+      {q:"What is Convex Hull Trick in DP?",opts:["None","Optimizes linear transition DP using convex hull","Geometry trick","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","O(n) optimization for totally monotone matrices","Matrix algo"],ans:2,topic:"Advanced DP"},
+      {q:"What is divide and conquer DP?",opts:["D&C sorting","Reduces O(n²) DP when opt is monotone to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["Sorting","None","None","DP optimization when opt(i,j) is monotone O(n²)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Matrix Exponentiation?",opts:["None","Matrix power","Compute recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion principle?",opts:["Math rule","None","Count union via alternating sum of intersections","None"],ans:2,topic:"Math"},
+      {q:"What is Euler's totient function?",opts:["None","Count integers ≤ n coprime to n","None","Euler function"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem?",opts:["Fermat theorem","None","a^(p-1) ≡ 1 mod p for prime p","None"],ans:2,topic:"Math"},
+      {q:"What is modular inverse?",opts:["None","Inverse mod","x such that a*x ≡ 1 mod m","None"],ans:2,topic:"Math"},
+      {q:"What is Chinese Remainder Theorem?",opts:["System of congruences with coprime moduli","None","CRT","None"],ans:0,topic:"Math"},
+      {q:"What is Sprague-Grundy theorem?",opts:["XOR of Grundy values determines game winner","None","Game theorem","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim game?",opts:["Take objects from piles — XOR determines winner","Nim class","None","None"],ans:0,topic:"Game Theory"},
+      {q:"What is a lichao segment tree?",opts:["None","Line tree","Segment tree variant for line minimization","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is offline vs online algorithm?",opts:["None","Query type","Offline knows all queries, online processes one by one","None"],ans:2,topic:"Algorithms"},
+      {q:"What is randomized algorithm?",opts:["None","Uses randomness for expected performance","Random algo","None"],ans:1,topic:"Algorithms"},
+      {q:"What is Las Vegas algorithm?",opts:["None","Always correct, randomized running time","None","Monte Carlo"],ans:1,topic:"Algorithms"},
+      {q:"What is Monte Carlo algorithm?",opts:["None","None","Las Vegas","Fast but may be incorrect with small probability"],ans:3,topic:"Algorithms"},
+      {q:"What is approximation algorithm?",opts:["Approx class","None","Guaranteed bound on solution quality vs optimal","None"],ans:2,topic:"Algorithms"},
+      {q:"What is FPT algorithm?",opts:["None","Fast poly time","Fixed Parameter Tractable for parameterized problems","None"],ans:2,topic:"Algorithms"},
+      {q:"What is NP-hard?",opts:["At least as hard as NP problems, no known poly algorithm","P hard","None","NP complete"],ans:0,topic:"Complexity"},
+      {q:"What is NP-complete?",opts:["In NP and NP-hard — hardest problems in NP","None","NP hard","P complete"],ans:0,topic:"Complexity"},
+      {q:"What is P vs NP?",opts:["None","P equals NP","Greatest open problem — can NP be solved in poly time?","None"],ans:2,topic:"Complexity"},
+      {q:"What is a reduction?",opts:["None","None","Transforming one problem to another to prove hardness","Problem mapping"],ans:2,topic:"Complexity"},
+      {q:"What is Heavy-Light Decomposition?",opts:["None","Decomposes tree into chains for O(log²n) path queries","None","Graph technique"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","Decompose tree at centroid for path/distance problems","Tree center","None"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Euler Tour on tree?",opts:["None","Graph tour","Linearizes tree for range query subtrees","Tree traversal"],ans:2,topic:"Advanced Trees"},
+      {q:"What is LCA (Lowest Common Ancestor)?",opts:["None","Common node","Deepest node that is ancestor of both nodes","Lowest node"],ans:2,topic:"Trees"},
+      {q:"What is a Persistent Data Structure?",opts:["None","Immutable DS","Retains all previous versions on updates","Versioned DS"],ans:2,topic:"Advanced DS"},
+      {q:"What is a Persistent Segment Tree?",opts:["None","Segment tree with version history O(log n) per update","None","Saved tree"],ans:1,topic:"Advanced DS"},
+      {q:"What is sqrt decomposition?",opts:["Divide into √n blocks for O(√n) tradeoff","None","Math operation","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is Mo's algorithm?",opts:["Greedy","None","None","Offline range queries sorted by sqrt blocks O((n+q)√n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap?",opts:["BST + heap randomized balanced tree","Tree type","None","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is a Splay tree?",opts:["None","BST variant","Splay sort","Self-adjusting BST via splaying accessed node"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Skip list?",opts:["Probabilistic multi-level linked list for O(log n)","Linked list","None","BST"],ans:0,topic:"Advanced DS"},
+      {q:"What is a van Emde Boas tree?",opts:["Integer tree","vEB class","O(log log U) operations for integers in universe U","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Z-algorithm?",opts:["Prefix search","Z function","O(n) prefix match lengths for each position","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is KMP?",opts:["String match","None","O(n+m) pattern matching using failure function","Knuth search"],ans:2,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick?",opts:["AC automaton","Multi-pattern matching using automaton O(n+m+k)","None","AhoC search"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Array?",opts:["String array","Sorted suffixes for O(log n) pattern search","Suffix tree","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Automaton?",opts:["String DFA","Suffix tree","Compact structure representing all substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","None","Palindrome DP"],ans:1,topic:"String Algorithms"},
+      {q:"What is Convex Hull Trick in DP?",opts:["None","Optimizes linear transition DP using convex hull","Geometry trick","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","O(n) optimization for totally monotone matrices","Matrix algo"],ans:2,topic:"Advanced DP"},
+      {q:"What is divide and conquer DP?",opts:["D&C sorting","Reduces O(n²) DP when opt is monotone to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["Sorting","None","None","DP optimization when opt(i,j) is monotone O(n²)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Matrix Exponentiation?",opts:["None","Matrix power","Compute recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion principle?",opts:["Math rule","None","Count union via alternating sum of intersections","None"],ans:2,topic:"Math"},
+      {q:"What is Euler's totient function?",opts:["None","Count integers ≤ n coprime to n","None","Euler function"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem?",opts:["Fermat theorem","None","a^(p-1) ≡ 1 mod p for prime p","None"],ans:2,topic:"Math"},
+      {q:"What is modular inverse?",opts:["None","Inverse mod","x such that a*x ≡ 1 mod m","None"],ans:2,topic:"Math"},
+      {q:"What is Chinese Remainder Theorem?",opts:["System of congruences with coprime moduli","None","CRT","None"],ans:0,topic:"Math"},
+      {q:"What is Sprague-Grundy theorem?",opts:["XOR of Grundy values determines game winner","None","Game theorem","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim game?",opts:["Take objects from piles — XOR determines winner","Nim class","None","None"],ans:0,topic:"Game Theory"},
+      {q:"What is a lichao segment tree?",opts:["None","Line tree","Segment tree variant for line minimization","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is offline vs online algorithm?",opts:["None","Query type","Offline knows all queries, online processes one by one","None"],ans:2,topic:"Algorithms"},
+      {q:"What is randomized algorithm?",opts:["None","Uses randomness for expected performance","Random algo","None"],ans:1,topic:"Algorithms"},
+      {q:"What is Las Vegas algorithm?",opts:["None","Always correct, randomized running time","None","Monte Carlo"],ans:1,topic:"Algorithms"},
+      {q:"What is Monte Carlo algorithm?",opts:["None","None","Las Vegas","Fast but may be incorrect with small probability"],ans:3,topic:"Algorithms"},
+      {q:"What is approximation algorithm?",opts:["Approx class","None","Guaranteed bound on solution quality vs optimal","None"],ans:2,topic:"Algorithms"},
+      {q:"What is FPT algorithm?",opts:["None","Fast poly time","Fixed Parameter Tractable for parameterized problems","None"],ans:2,topic:"Algorithms"},
+      {q:"What is NP-hard?",opts:["At least as hard as NP problems, no known poly algorithm","P hard","None","NP complete"],ans:0,topic:"Complexity"},
+      {q:"What is NP-complete?",opts:["In NP and NP-hard — hardest problems in NP","None","NP hard","P complete"],ans:0,topic:"Complexity"},
+      {q:"What is P vs NP?",opts:["None","P equals NP","Greatest open problem — can NP be solved in poly time?","None"],ans:2,topic:"Complexity"},
+      {q:"What is a reduction?",opts:["None","None","Transforming one problem to another to prove hardness","Problem mapping"],ans:2,topic:"Complexity"},
+      {q:"What is Heavy-Light Decomposition?",opts:["None","Decomposes tree into chains for O(log²n) path queries","None","Graph technique"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","Decompose tree at centroid for path/distance problems","Tree center","None"],ans:1,topic:"Advanced Trees"},
+      {q:"What is Euler Tour on tree?",opts:["None","Graph tour","Linearizes tree for range query subtrees","Tree traversal"],ans:2,topic:"Advanced Trees"},
+      {q:"What is LCA (Lowest Common Ancestor)?",opts:["None","Common node","Deepest node that is ancestor of both nodes","Lowest node"],ans:2,topic:"Trees"},
+      {q:"What is a Persistent Data Structure?",opts:["None","Immutable DS","Retains all previous versions on updates","Versioned DS"],ans:2,topic:"Advanced DS"},
+      {q:"What is a Persistent Segment Tree?",opts:["None","Segment tree with version history O(log n) per update","None","Saved tree"],ans:1,topic:"Advanced DS"},
+      {q:"What is sqrt decomposition?",opts:["Divide into √n blocks for O(√n) tradeoff","None","Math operation","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is Mo's algorithm?",opts:["Greedy","None","None","Offline range queries sorted by sqrt blocks O((n+q)√n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap?",opts:["BST + heap randomized balanced tree","Tree type","None","None"],ans:0,topic:"Advanced DS"},
+      {q:"What is a Splay tree?",opts:["None","BST variant","Splay sort","Self-adjusting BST via splaying accessed node"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Skip list?",opts:["Probabilistic multi-level linked list for O(log n)","Linked list","None","BST"],ans:0,topic:"Advanced DS"},
+      {q:"What is a van Emde Boas tree?",opts:["Integer tree","vEB class","O(log log U) operations for integers in universe U","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Z-algorithm?",opts:["Prefix search","Z function","O(n) prefix match lengths for each position","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is KMP?",opts:["String match","None","O(n+m) pattern matching using failure function","Knuth search"],ans:2,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick?",opts:["AC automaton","Multi-pattern matching using automaton O(n+m+k)","None","AhoC search"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Array?",opts:["String array","Sorted suffixes for O(log n) pattern search","Suffix tree","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is Suffix Automaton?",opts:["String DFA","Suffix tree","Compact structure representing all substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","None","Palindrome DP"],ans:1,topic:"String Algorithms"},
+      {q:"What is Convex Hull Trick in DP?",opts:["None","Optimizes linear transition DP using convex hull","Geometry trick","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","O(n) optimization for totally monotone matrices","Matrix algo"],ans:2,topic:"Advanced DP"},
+      {q:"What is divide and conquer DP?",opts:["D&C sorting","Reduces O(n²) DP when opt is monotone to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["Sorting","None","None","DP optimization when opt(i,j) is monotone O(n²)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Matrix Exponentiation?",opts:["None","Matrix power","Compute recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion principle?",opts:["Math rule","None","Count union via alternating sum of intersections","None"],ans:2,topic:"Math"},
+      {q:"What is Euler's totient function?",opts:["None","Count integers ≤ n coprime to n","None","Euler function"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem?",opts:["Fermat theorem","None","a^(p-1) ≡ 1 mod p for prime p","None"],ans:2,topic:"Math"},
+      {q:"What is modular inverse?",opts:["None","Inverse mod","x such that a*x ≡ 1 mod m","None"],ans:2,topic:"Math"},
+      {q:"What is Chinese Remainder Theorem?",opts:["System of congruences with coprime moduli","None","CRT","None"],ans:0,topic:"Math"},
+      {q:"What is Sprague-Grundy theorem?",opts:["XOR of Grundy values determines game winner","None","Game theorem","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim game?",opts:["Take objects from piles — XOR determines winner","Nim class","None","None"],ans:0,topic:"Game Theory"},
+      {q:"What is a lichao segment tree?",opts:["None","Line tree","Segment tree variant for line minimization","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is offline vs online algorithm?",opts:["None","Query type","Offline knows all queries, online processes one by one","None"],ans:2,topic:"Algorithms"},
+      {q:"What is randomized algorithm?",opts:["None","Uses randomness for expected performance","Random algo","None"],ans:1,topic:"Algorithms"},
+      {q:"What is Las Vegas algorithm?",opts:["None","Always correct, randomized running time","None","Monte Carlo"],ans:1,topic:"Algorithms"},
+      {q:"What is Monte Carlo algorithm?",opts:["None","None","Las Vegas","Fast but may be incorrect with small probability"],ans:3,topic:"Algorithms"},
+      {q:"What is approximation algorithm?",opts:["Approx class","None","Guaranteed bound on solution quality vs optimal","None"],ans:2,topic:"Algorithms"},
     ],
   },
   c5:{
     basic:[
-      {q:"What does HTTPS 'S' stand for?",opts:["Simple","Secure","Static","Standard"],ans:1,topic:"Networking"},
-      {q:"What is a firewall?",opts:["Speed booster","Network traffic filter based on rules","Virus remover","None"],ans:1,topic:"Networking"},
-      {q:"What is an IP address?",opts:["Internet Password","Unique identifier for device on network","Website name","Email"],ans:1,topic:"Networking"},
-      {q:"What does DNS do?",opts:["Encrypts data","Translates domain names to IP addresses","Blocks attacks","None"],ans:1,topic:"Networking"},
-      {q:"What is a VPN?",opts:["Virus Protection Network","Virtual Private Network — encrypts and tunnels traffic","Speed booster","None"],ans:1,topic:"Networking"},
-      {q:"What is phishing?",opts:["Physical attack","Fake communications to trick users into revealing credentials","DDoS","Malware"],ans:1,topic:"Social Engineering"},
-      {q:"What is malware?",opts:["Good software","Malicious software designed to damage or gain access","Update","None"],ans:1,topic:"Threats"},
-      {q:"What is a virus in cybersecurity?",opts:["Hardware fault","Self-replicating malicious program","Network error","None"],ans:1,topic:"Threats"},
-      {q:"What does authentication mean?",opts:["Authorization","Verifying who someone is","Encrypting data","None"],ans:1,topic:"Security Basics"},
-      {q:"What is a strong password?",opts:["Short and simple","Mix of uppercase, lowercase, numbers, symbols — 12+ chars","Only numbers","Name only"],ans:1,topic:"Security Basics"},
-      {q:"What is 2FA (Two-Factor Authentication)?",opts:["Two passwords","Two different verification methods — e.g. password + OTP","Two usernames","None"],ans:1,topic:"Authentication"},
-      {q:"What is encryption?",opts:["Deleting data","Converting data to unreadable form using a key","Compressing data","None"],ans:1,topic:"Cryptography"},
-      {q:"What does SSL do?",opts:["Speeds connection","Encrypts data between browser and server","Compresses files","None"],ans:1,topic:"Cryptography"},
-      {q:"What is a port in networking?",opts:["Physical connector only","Logical endpoint for specific service — e.g. port 80=HTTP","None","Router"],ans:1,topic:"Networking"},
-      {q:"What is HTTP status 404?",opts:["Server error","Not found","Success","Redirect"],ans:1,topic:"Web"},
-      {q:"What is a cookie?",opts:["Malware","Small data stored by browser from website","None","Password"],ans:1,topic:"Web"},
-      {q:"What is social engineering?",opts:["Software attack","Manipulating people psychologically to reveal info","Hardware attack","None"],ans:1,topic:"Social Engineering"},
-      {q:"What is a DDoS attack?",opts:["Database attack","Overwhelming server with traffic from many sources","Phishing","None"],ans:1,topic:"Attacks"},
-      {q:"What is the purpose of antivirus software?",opts:["Speeds up PC","Detects and removes malicious software","Backs up data","None"],ans:1,topic:"Defense"},
-      {q:"What does CIA triad stand for in security?",opts:["Confidentiality Integrity Availability","Computer Internet Access","None","Common Internet Attacks"],ans:0,topic:"Security Basics"},
+      {q:"What does HTTPS 'S' stand for?",opts:["Standard","Secure","Static","Simple"],ans:1,topic:"Networking"},
+      {q:"What is a firewall?",opts:["Speed booster","Virus remover","None","Network traffic filter based on rules"],ans:3,topic:"Networking"},
+      {q:"What is an IP address?",opts:["Website name","Email","Internet Password","Unique identifier for device on network"],ans:3,topic:"Networking"},
+      {q:"What does DNS do?",opts:["None","Blocks attacks","Translates domain names to IP addresses","Encrypts data"],ans:2,topic:"Networking"},
+      {q:"What is a VPN?",opts:["Speed booster","Virus Protection","None","Virtual Private Network encrypting traffic"],ans:3,topic:"Networking"},
+      {q:"What is phishing?",opts:["Malware","Physical attack","Fake communications to steal credentials","DDoS"],ans:2,topic:"Social Engineering"},
+      {q:"What is malware?",opts:["Good software","Update","Malicious software to damage or gain access","None"],ans:2,topic:"Threats"},
+      {q:"What is a virus in cybersecurity?",opts:["Hardware fault","Network error","Self-replicating malicious program","None"],ans:2,topic:"Threats"},
+      {q:"What does authentication mean?",opts:["Verifying who someone is","Authorization","None","Encrypting data"],ans:0,topic:"Security Basics"},
+      {q:"What is a strong password?",opts:["Name only","Short and simple","Only numbers","Mix of upper/lower/numbers/symbols 12+ chars"],ans:3,topic:"Security Basics"},
+      {q:"What is 2FA?",opts:["None","Two usernames","Two different verification methods","Two passwords"],ans:2,topic:"Authentication"},
+      {q:"What is encryption?",opts:["None","Compressing data","Converting data to unreadable form using key","Deleting data"],ans:2,topic:"Cryptography"},
+      {q:"What does SSL do?",opts:["Encrypts data between browser and server","None","Speeds connection","Compresses files"],ans:0,topic:"Cryptography"},
+      {q:"What is a port in networking?",opts:["None","Physical connector only","Logical endpoint for specific service","Router"],ans:2,topic:"Networking"},
+      {q:"HTTP status 404 means?",opts:["Success","Not found","Server error","Redirect"],ans:1,topic:"Web"},
+      {q:"What is a cookie?",opts:["None","Small data stored by browser from website","Password","Malware"],ans:1,topic:"Web"},
+      {q:"What is social engineering?",opts:["Hardware attack","Software attack","None","Manipulating people to reveal information"],ans:3,topic:"Social Engineering"},
+      {q:"What is a DDoS attack?",opts:["Overwhelming server with traffic from many sources","Phishing","Database attack","None"],ans:0,topic:"Attacks"},
+      {q:"What is antivirus software?",opts:["Speeds up PC","None","Backs up data","Detects and removes malicious software"],ans:3,topic:"Defense"},
+      {q:"What does CIA triad stand for?",opts:["None","Common Internet Attacks","Confidentiality Integrity Availability","Computer Internet Access"],ans:2,topic:"Security Basics"},
+      {q:"What is a trojan horse?",opts:["Malware disguised as legitimate software","Virus","Worm","None"],ans:0,topic:"Threats"},
+      {q:"What is a worm?",opts:["Virus","None","Trojan","Self-replicating malware spreading across networks"],ans:3,topic:"Threats"},
+      {q:"What is ransomware?",opts:["Adware","None","Encrypts files and demands payment","Spyware"],ans:2,topic:"Threats"},
+      {q:"What is spyware?",opts:["Ransomware","None","Secretly monitors and steals user data","Adware"],ans:2,topic:"Threats"},
+      {q:"What is adware?",opts:["Spyware","Displays unwanted advertisements","None","Ransomware"],ans:1,topic:"Threats"},
+      {q:"What is a keylogger?",opts:["Network logger","Records keystrokes to steal passwords","None","Screen logger"],ans:1,topic:"Threats"},
+      {q:"What is a rootkit?",opts:["None","Hides malware presence on system","Trojan","Virus"],ans:1,topic:"Threats"},
+      {q:"What is a botnet?",opts:["Infected net","Bot network","Network of infected computers controlled remotely","None"],ans:2,topic:"Threats"},
+      {q:"What is a zero-day exploit?",opts:["None","Attack using unknown unpatched vulnerability","Known exploit","Old exploit"],ans:1,topic:"Attacks"},
+      {q:"What is patch management?",opts:["Keeping software updated to fix vulnerabilities","Patch creation","Software testing","None"],ans:0,topic:"Defense"},
+      {q:"What is a DMZ in networking?",opts:["Military zone","Demilitarized zone — buffer between public and private","Double Mapped Zone","None"],ans:1,topic:"Networking"},
+      {q:"What is NAT?",opts:["None","Network Allocation","None","Network Address Translation — maps private to public IP"],ans:3,topic:"Networking"},
+      {q:"What is a subnet?",opts:["Subnet class","Sub network","None","Logical subdivision of network"],ans:3,topic:"Networking"},
+      {q:"What is DHCP?",opts:["Domain Host","None","Automatically assigns IP addresses to devices","Dynamic Host Config"],ans:2,topic:"Networking"},
+      {q:"What is a MAC address?",opts:["Machine Address","Hardware address of network interface","Media Address","None"],ans:1,topic:"Networking"},
+      {q:"What is ARP?",opts:["Maps IP addresses to MAC addresses","None","Address Resolution Protocol","None"],ans:0,topic:"Networking"},
+      {q:"What is ICMP?",opts:["Internet Control Message Protocol — ping uses it","None","None","Internet Control"],ans:0,topic:"Networking"},
+      {q:"What is TCP vs UDP?",opts:["UDP is reliable","Same thing","TCP reliable ordered, UDP fast unreliable","None"],ans:2,topic:"Networking"},
+      {q:"What is port 80?",opts:["SSH port","HTTPS port","FTP port","Default HTTP port"],ans:3,topic:"Networking"},
+      {q:"What is port 443?",opts:["SSH port","Default HTTPS port","FTP port","HTTP port"],ans:1,topic:"Networking"},
+      {q:"What is port 22?",opts:["FTP port","DNS port","HTTP port","SSH secure shell port"],ans:3,topic:"Networking"},
+      {q:"What is port 21?",opts:["SSH port","FTP file transfer port","HTTP port","DNS port"],ans:1,topic:"Networking"},
+      {q:"What is port 53?",opts:["DNS port","FTP port","HTTP port","SSH port"],ans:0,topic:"Networking"},
+      {q:"What is port 25?",opts:["HTTP port","FTP port","DNS port","SMTP email port"],ans:3,topic:"Networking"},
+      {q:"What is the OSI model?",opts:["7-layer framework for network communication","None","Open System Interface","Operating System Interface"],ans:0,topic:"Networking"},
+      {q:"What is Layer 1 of OSI?",opts:["Data Link","Transport","Physical — cables, signals","Network"],ans:2,topic:"Networking"},
+      {q:"What is Layer 3 of OSI?",opts:["Data Link","Physical","Transport","Network — IP routing"],ans:3,topic:"Networking"},
+      {q:"What is Layer 4 of OSI?",opts:["Transport — TCP/UDP","Network","Session","Physical"],ans:0,topic:"Networking"},
+      {q:"What is Layer 7 of OSI?",opts:["Transport","Session","Presentation","Application — HTTP, DNS, FTP"],ans:3,topic:"Networking"},
+      {q:"What is the TCP/IP model?",opts:["OSI model","4-layer practical model — Link, Internet, Transport, App","None","IP model"],ans:1,topic:"Networking"},
+      {q:"What is symmetric encryption?",opts:["None","Same key encrypts and decrypts","Different keys","No key needed"],ans:1,topic:"Cryptography"},
+      {q:"What is asymmetric encryption?",opts:["Public key encrypts, private key decrypts","None","Same key","No key"],ans:0,topic:"Cryptography"},
+      {q:"What is a public key?",opts:["Private key","None","Secret key","Shared openly for encryption"],ans:3,topic:"Cryptography"},
+      {q:"What is a private key?",opts:["Kept secret for decryption","None","Shared key","Public key"],ans:0,topic:"Cryptography"},
+      {q:"What is RSA?",opts:["Hash function","None","Asymmetric encryption algorithm","Symmetric encryption"],ans:2,topic:"Cryptography"},
+      {q:"What is AES?",opts:["Advanced Encryption Standard — symmetric","None","Asymmetric","Hash function"],ans:0,topic:"Cryptography"},
+      {q:"What is a hash function?",opts:["None","Two-way cipher","One-way fixed-size output from any input","Reversible encryption"],ans:2,topic:"Cryptography"},
+      {q:"What is SHA-256?",opts:["Secure Hash Algorithm producing 256-bit hash","MD5 variant","SHA-128","None"],ans:0,topic:"Cryptography"},
+      {q:"What is MD5?",opts:["None","Older hash algorithm (now considered weak)","Encryption algorithm","Firewall"],ans:1,topic:"Cryptography"},
+      {q:"What is a digital signature?",opts:["None","Proves authenticity and integrity using private key","Written signature","Password"],ans:1,topic:"Cryptography"},
+      {q:"What is PKI?",opts:["Public Key Internet","Public Key Infrastructure for certificate management","Private Key Infra","None"],ans:1,topic:"Cryptography"},
+      {q:"What is a digital certificate?",opts:["Digital ID","Key certificate","Binds public key to identity — issued by CA","None"],ans:2,topic:"Cryptography"},
+      {q:"What is a CA (Certificate Authority)?",opts:["None","Certificate App","Trusted entity issuing digital certificates","None"],ans:2,topic:"Cryptography"},
+      {q:"What is TLS?",opts:["Transport Layer Security — successor to SSL","Total Layer","None","None"],ans:0,topic:"Cryptography"},
+      {q:"What is a man-in-the-middle attack?",opts:["Attacker intercepts communication between two parties","None","Middle attack","Intercept attack"],ans:0,topic:"Attacks"},
+      {q:"What is IP spoofing?",opts:["IP hiding","Faking source IP address to deceive","IP masking","None"],ans:1,topic:"Attacks"},
+      {q:"What is ARP spoofing?",opts:["None","Sending fake ARP replies to redirect traffic","ARP attack","MAC attack"],ans:1,topic:"Attacks"},
+      {q:"What is DNS spoofing?",opts:["IP attack","Injecting false DNS records to redirect users","DNS attack","None"],ans:1,topic:"Attacks"},
+      {q:"What is a replay attack?",opts:["Retransmitting valid data to fool authentication","Copy attack","Repeat attack","None"],ans:0,topic:"Attacks"},
+      {q:"What is session hijacking?",opts:["Cookie theft","Taking over authenticated user session","Token theft","None"],ans:1,topic:"Attacks"},
+      {q:"What is clickjacking?",opts:["Hiding malicious elements under legitimate UI","None","Click attack","UI attack"],ans:0,topic:"Attacks"},
+      {q:"What is a watering hole attack?",opts:["Site attack","Infecting websites targets frequently visit","Water attack","None"],ans:1,topic:"Attacks"},
+      {q:"What is supply chain attack?",opts:["None","Compromising software before it reaches users","Source attack","Chain attack"],ans:1,topic:"Attacks"},
+      {q:"What is OSINT?",opts:["None","Open Source Int","None","Open Source Intelligence — public info gathering"],ans:3,topic:"Reconnaissance"},
+      {q:"What is Google dorking?",opts:["Advanced Google queries to find sensitive data","Google search","None","Google hacking"],ans:0,topic:"Reconnaissance"},
+      {q:"What is Shodan?",opts:["None","Device finder","Shodan class","Search engine for internet-connected devices"],ans:3,topic:"Tools"},
+      {q:"What is Maltego?",opts:["Visual link analysis for reconnaissance","None","None","Malware tool"],ans:0,topic:"Tools"},
+      {q:"What is theHarvester?",opts:["None","Email and domain enumeration tool","None","Harvest tool"],ans:1,topic:"Tools"},
+      {q:"What is Nmap?",opts:["Password cracker","Network discovery and port scanning tool","Code editor","None"],ans:1,topic:"Tools"},
+      {q:"What is Metasploit?",opts:["Exploitation framework for security testing","Metadata tool","None","None"],ans:0,topic:"Tools"},
+      {q:"What is Burp Suite?",opts:["Web application security testing proxy","Code editor","Network scanner","None"],ans:0,topic:"Tools"},
+      {q:"What is Wireshark?",opts:["Password cracker","None","Code editor","Network packet analyzer"],ans:3,topic:"Tools"},
+      {q:"What is John the Ripper?",opts:["Password manager","John software","None","Password cracking tool"],ans:3,topic:"Tools"},
+      {q:"What is Hashcat?",opts:["None","GPU-accelerated password hash cracker","None","Hash tool"],ans:1,topic:"Tools"},
+      {q:"What is Aircrack-ng?",opts:["WiFi network security testing suite","None","Air tool","None"],ans:0,topic:"Tools"},
+      {q:"What is Hydra?",opts:["Hydra tool","None","None","Network login brute force tool"],ans:3,topic:"Tools"},
+      {q:"What is Nikto?",opts:["Nikto class","None","Web server vulnerability scanner","Web tool"],ans:2,topic:"Tools"},
+      {q:"What is SQLmap?",opts:["Automated SQL injection testing tool","None","SQL tool","None"],ans:0,topic:"Tools"},
+      {q:"What is a CTF?",opts:["Code The Flag","Capture The Flag — cybersecurity competition","Cyber Task Force","None"],ans:1,topic:"CTF"},
+      {q:"What is a flag in CTF?",opts:["None","Prize","Secret string to capture for points","Answer"],ans:2,topic:"CTF"},
+      {q:"What are CTF categories?",opts:["None","None","Attack, Defend","Web, Crypto, Pwn, Forensics, Reversing, Misc"],ans:3,topic:"CTF"},
+      {q:"What is steganography in CTF?",opts:["Steg class","None","None","Hiding data inside images or audio files"],ans:3,topic:"CTF"},
+      {q:"What is reversing in CTF?",opts:["Analyzing binaries to understand/exploit them","None","Reverse class","None"],ans:0,topic:"CTF"},
+      {q:"What does HTTPS 'S' stand for?",opts:["Standard","Secure","Static","Simple"],ans:1,topic:"Networking"},
+      {q:"What is a firewall?",opts:["Speed booster","Virus remover","None","Network traffic filter based on rules"],ans:3,topic:"Networking"},
+      {q:"What is an IP address?",opts:["Website name","Email","Internet Password","Unique identifier for device on network"],ans:3,topic:"Networking"},
+      {q:"What does DNS do?",opts:["None","Blocks attacks","Translates domain names to IP addresses","Encrypts data"],ans:2,topic:"Networking"},
+      {q:"What is a VPN?",opts:["Speed booster","Virus Protection","None","Virtual Private Network encrypting traffic"],ans:3,topic:"Networking"},
+      {q:"What is phishing?",opts:["Malware","Physical attack","Fake communications to steal credentials","DDoS"],ans:2,topic:"Social Engineering"},
+      {q:"What is malware?",opts:["Good software","Update","Malicious software to damage or gain access","None"],ans:2,topic:"Threats"},
+      {q:"What is a virus in cybersecurity?",opts:["Hardware fault","Network error","Self-replicating malicious program","None"],ans:2,topic:"Threats"},
+      {q:"What does authentication mean?",opts:["Verifying who someone is","Authorization","None","Encrypting data"],ans:0,topic:"Security Basics"},
+      {q:"What is a strong password?",opts:["Name only","Short and simple","Only numbers","Mix of upper/lower/numbers/symbols 12+ chars"],ans:3,topic:"Security Basics"},
+      {q:"What is 2FA?",opts:["None","Two usernames","Two different verification methods","Two passwords"],ans:2,topic:"Authentication"},
+      {q:"What is encryption?",opts:["None","Compressing data","Converting data to unreadable form using key","Deleting data"],ans:2,topic:"Cryptography"},
+      {q:"What does SSL do?",opts:["Encrypts data between browser and server","None","Speeds connection","Compresses files"],ans:0,topic:"Cryptography"},
+      {q:"What is a port in networking?",opts:["None","Physical connector only","Logical endpoint for specific service","Router"],ans:2,topic:"Networking"},
+      {q:"HTTP status 404 means?",opts:["Success","Not found","Server error","Redirect"],ans:1,topic:"Web"},
+      {q:"What is a cookie?",opts:["None","Small data stored by browser from website","Password","Malware"],ans:1,topic:"Web"},
+      {q:"What is social engineering?",opts:["Hardware attack","Software attack","None","Manipulating people to reveal information"],ans:3,topic:"Social Engineering"},
+      {q:"What is a DDoS attack?",opts:["Overwhelming server with traffic from many sources","Phishing","Database attack","None"],ans:0,topic:"Attacks"},
+      {q:"What is antivirus software?",opts:["Speeds up PC","None","Backs up data","Detects and removes malicious software"],ans:3,topic:"Defense"},
+      {q:"What does CIA triad stand for?",opts:["None","Common Internet Attacks","Confidentiality Integrity Availability","Computer Internet Access"],ans:2,topic:"Security Basics"},
+      {q:"What is a trojan horse?",opts:["Malware disguised as legitimate software","Virus","Worm","None"],ans:0,topic:"Threats"},
+      {q:"What is a worm?",opts:["Virus","None","Trojan","Self-replicating malware spreading across networks"],ans:3,topic:"Threats"},
+      {q:"What is ransomware?",opts:["Adware","None","Encrypts files and demands payment","Spyware"],ans:2,topic:"Threats"},
+      {q:"What is spyware?",opts:["Ransomware","None","Secretly monitors and steals user data","Adware"],ans:2,topic:"Threats"},
+      {q:"What is adware?",opts:["Spyware","Displays unwanted advertisements","None","Ransomware"],ans:1,topic:"Threats"},
+      {q:"What is a keylogger?",opts:["Network logger","Records keystrokes to steal passwords","None","Screen logger"],ans:1,topic:"Threats"},
+      {q:"What is a rootkit?",opts:["None","Hides malware presence on system","Trojan","Virus"],ans:1,topic:"Threats"},
+      {q:"What is a botnet?",opts:["Infected net","Bot network","Network of infected computers controlled remotely","None"],ans:2,topic:"Threats"},
+      {q:"What is a zero-day exploit?",opts:["None","Attack using unknown unpatched vulnerability","Known exploit","Old exploit"],ans:1,topic:"Attacks"},
+      {q:"What is patch management?",opts:["Keeping software updated to fix vulnerabilities","Patch creation","Software testing","None"],ans:0,topic:"Defense"},
+      {q:"What is a DMZ in networking?",opts:["Military zone","Demilitarized zone — buffer between public and private","Double Mapped Zone","None"],ans:1,topic:"Networking"},
+      {q:"What is NAT?",opts:["None","Network Allocation","None","Network Address Translation — maps private to public IP"],ans:3,topic:"Networking"},
+      {q:"What is a subnet?",opts:["Subnet class","Sub network","None","Logical subdivision of network"],ans:3,topic:"Networking"},
+      {q:"What is DHCP?",opts:["Domain Host","None","Automatically assigns IP addresses to devices","Dynamic Host Config"],ans:2,topic:"Networking"},
+      {q:"What is a MAC address?",opts:["Machine Address","Hardware address of network interface","Media Address","None"],ans:1,topic:"Networking"},
+      {q:"What is ARP?",opts:["Maps IP addresses to MAC addresses","None","Address Resolution Protocol","None"],ans:0,topic:"Networking"},
+      {q:"What is ICMP?",opts:["Internet Control Message Protocol — ping uses it","None","None","Internet Control"],ans:0,topic:"Networking"},
+      {q:"What is TCP vs UDP?",opts:["UDP is reliable","Same thing","TCP reliable ordered, UDP fast unreliable","None"],ans:2,topic:"Networking"},
+      {q:"What is port 80?",opts:["SSH port","HTTPS port","FTP port","Default HTTP port"],ans:3,topic:"Networking"},
+      {q:"What is port 443?",opts:["SSH port","Default HTTPS port","FTP port","HTTP port"],ans:1,topic:"Networking"},
+      {q:"What is port 22?",opts:["FTP port","DNS port","HTTP port","SSH secure shell port"],ans:3,topic:"Networking"},
+      {q:"What is port 21?",opts:["SSH port","FTP file transfer port","HTTP port","DNS port"],ans:1,topic:"Networking"},
+      {q:"What is port 53?",opts:["DNS port","FTP port","HTTP port","SSH port"],ans:0,topic:"Networking"},
+      {q:"What is port 25?",opts:["HTTP port","FTP port","DNS port","SMTP email port"],ans:3,topic:"Networking"},
+      {q:"What is the OSI model?",opts:["7-layer framework for network communication","None","Open System Interface","Operating System Interface"],ans:0,topic:"Networking"},
+      {q:"What is Layer 1 of OSI?",opts:["Data Link","Transport","Physical — cables, signals","Network"],ans:2,topic:"Networking"},
+      {q:"What is Layer 3 of OSI?",opts:["Data Link","Physical","Transport","Network — IP routing"],ans:3,topic:"Networking"},
+      {q:"What is Layer 4 of OSI?",opts:["Transport — TCP/UDP","Network","Session","Physical"],ans:0,topic:"Networking"},
+      {q:"What is Layer 7 of OSI?",opts:["Transport","Session","Presentation","Application — HTTP, DNS, FTP"],ans:3,topic:"Networking"},
+      {q:"What is the TCP/IP model?",opts:["OSI model","4-layer practical model — Link, Internet, Transport, App","None","IP model"],ans:1,topic:"Networking"},
+      {q:"What is symmetric encryption?",opts:["None","Same key encrypts and decrypts","Different keys","No key needed"],ans:1,topic:"Cryptography"},
+      {q:"What is asymmetric encryption?",opts:["Public key encrypts, private key decrypts","None","Same key","No key"],ans:0,topic:"Cryptography"},
+      {q:"What is a public key?",opts:["Private key","None","Secret key","Shared openly for encryption"],ans:3,topic:"Cryptography"},
+      {q:"What is a private key?",opts:["Kept secret for decryption","None","Shared key","Public key"],ans:0,topic:"Cryptography"},
+      {q:"What is RSA?",opts:["Hash function","None","Asymmetric encryption algorithm","Symmetric encryption"],ans:2,topic:"Cryptography"},
+      {q:"What is AES?",opts:["Advanced Encryption Standard — symmetric","None","Asymmetric","Hash function"],ans:0,topic:"Cryptography"},
+      {q:"What is a hash function?",opts:["None","Two-way cipher","One-way fixed-size output from any input","Reversible encryption"],ans:2,topic:"Cryptography"},
+      {q:"What is SHA-256?",opts:["Secure Hash Algorithm producing 256-bit hash","MD5 variant","SHA-128","None"],ans:0,topic:"Cryptography"},
+      {q:"What is MD5?",opts:["None","Older hash algorithm (now considered weak)","Encryption algorithm","Firewall"],ans:1,topic:"Cryptography"},
+      {q:"What is a digital signature?",opts:["None","Proves authenticity and integrity using private key","Written signature","Password"],ans:1,topic:"Cryptography"},
+      {q:"What is PKI?",opts:["Public Key Internet","Public Key Infrastructure for certificate management","Private Key Infra","None"],ans:1,topic:"Cryptography"},
+      {q:"What is a digital certificate?",opts:["Digital ID","Key certificate","Binds public key to identity — issued by CA","None"],ans:2,topic:"Cryptography"},
+      {q:"What is a CA (Certificate Authority)?",opts:["None","Certificate App","Trusted entity issuing digital certificates","None"],ans:2,topic:"Cryptography"},
+      {q:"What is TLS?",opts:["Transport Layer Security — successor to SSL","Total Layer","None","None"],ans:0,topic:"Cryptography"},
+      {q:"What is a man-in-the-middle attack?",opts:["Attacker intercepts communication between two parties","None","Middle attack","Intercept attack"],ans:0,topic:"Attacks"},
+      {q:"What is IP spoofing?",opts:["IP hiding","Faking source IP address to deceive","IP masking","None"],ans:1,topic:"Attacks"},
+      {q:"What is ARP spoofing?",opts:["None","Sending fake ARP replies to redirect traffic","ARP attack","MAC attack"],ans:1,topic:"Attacks"},
+      {q:"What is DNS spoofing?",opts:["IP attack","Injecting false DNS records to redirect users","DNS attack","None"],ans:1,topic:"Attacks"},
+      {q:"What is a replay attack?",opts:["Retransmitting valid data to fool authentication","Copy attack","Repeat attack","None"],ans:0,topic:"Attacks"},
+      {q:"What is session hijacking?",opts:["Cookie theft","Taking over authenticated user session","Token theft","None"],ans:1,topic:"Attacks"},
+      {q:"What is clickjacking?",opts:["Hiding malicious elements under legitimate UI","None","Click attack","UI attack"],ans:0,topic:"Attacks"},
+      {q:"What is a watering hole attack?",opts:["Site attack","Infecting websites targets frequently visit","Water attack","None"],ans:1,topic:"Attacks"},
+      {q:"What is supply chain attack?",opts:["None","Compromising software before it reaches users","Source attack","Chain attack"],ans:1,topic:"Attacks"},
+      {q:"What is OSINT?",opts:["None","Open Source Int","None","Open Source Intelligence — public info gathering"],ans:3,topic:"Reconnaissance"},
+      {q:"What is Google dorking?",opts:["Advanced Google queries to find sensitive data","Google search","None","Google hacking"],ans:0,topic:"Reconnaissance"},
+      {q:"What is Shodan?",opts:["None","Device finder","Shodan class","Search engine for internet-connected devices"],ans:3,topic:"Tools"},
+      {q:"What is Maltego?",opts:["Visual link analysis for reconnaissance","None","None","Malware tool"],ans:0,topic:"Tools"},
+      {q:"What is theHarvester?",opts:["None","Email and domain enumeration tool","None","Harvest tool"],ans:1,topic:"Tools"},
+      {q:"What is Nmap?",opts:["Password cracker","Network discovery and port scanning tool","Code editor","None"],ans:1,topic:"Tools"},
+      {q:"What is Metasploit?",opts:["Exploitation framework for security testing","Metadata tool","None","None"],ans:0,topic:"Tools"},
+      {q:"What is Burp Suite?",opts:["Web application security testing proxy","Code editor","Network scanner","None"],ans:0,topic:"Tools"},
+      {q:"What is Wireshark?",opts:["Password cracker","None","Code editor","Network packet analyzer"],ans:3,topic:"Tools"},
+      {q:"What is John the Ripper?",opts:["Password manager","John software","None","Password cracking tool"],ans:3,topic:"Tools"},
+      {q:"What is Hashcat?",opts:["None","GPU-accelerated password hash cracker","None","Hash tool"],ans:1,topic:"Tools"},
+      {q:"What is Aircrack-ng?",opts:["WiFi network security testing suite","None","Air tool","None"],ans:0,topic:"Tools"},
+      {q:"What is Hydra?",opts:["Hydra tool","None","None","Network login brute force tool"],ans:3,topic:"Tools"},
+      {q:"What is Nikto?",opts:["Nikto class","None","Web server vulnerability scanner","Web tool"],ans:2,topic:"Tools"},
+      {q:"What is SQLmap?",opts:["Automated SQL injection testing tool","None","SQL tool","None"],ans:0,topic:"Tools"},
+      {q:"What is a CTF?",opts:["Code The Flag","Capture The Flag — cybersecurity competition","Cyber Task Force","None"],ans:1,topic:"CTF"},
+      {q:"What is a flag in CTF?",opts:["None","Prize","Secret string to capture for points","Answer"],ans:2,topic:"CTF"},
+      {q:"What are CTF categories?",opts:["None","None","Attack, Defend","Web, Crypto, Pwn, Forensics, Reversing, Misc"],ans:3,topic:"CTF"},
+      {q:"What is steganography in CTF?",opts:["Steg class","None","None","Hiding data inside images or audio files"],ans:3,topic:"CTF"},
+      {q:"What is reversing in CTF?",opts:["Analyzing binaries to understand/exploit them","None","Reverse class","None"],ans:0,topic:"CTF"},
+      {q:"What does HTTPS 'S' stand for?",opts:["Standard","Secure","Static","Simple"],ans:1,topic:"Networking"},
+      {q:"What is a firewall?",opts:["Speed booster","Virus remover","None","Network traffic filter based on rules"],ans:3,topic:"Networking"},
+      {q:"What is an IP address?",opts:["Website name","Email","Internet Password","Unique identifier for device on network"],ans:3,topic:"Networking"},
+      {q:"What does DNS do?",opts:["None","Blocks attacks","Translates domain names to IP addresses","Encrypts data"],ans:2,topic:"Networking"},
+      {q:"What is a VPN?",opts:["Speed booster","Virus Protection","None","Virtual Private Network encrypting traffic"],ans:3,topic:"Networking"},
+      {q:"What is phishing?",opts:["Malware","Physical attack","Fake communications to steal credentials","DDoS"],ans:2,topic:"Social Engineering"},
+      {q:"What is malware?",opts:["Good software","Update","Malicious software to damage or gain access","None"],ans:2,topic:"Threats"},
+      {q:"What is a virus in cybersecurity?",opts:["Hardware fault","Network error","Self-replicating malicious program","None"],ans:2,topic:"Threats"},
+      {q:"What does authentication mean?",opts:["Verifying who someone is","Authorization","None","Encrypting data"],ans:0,topic:"Security Basics"},
+      {q:"What is a strong password?",opts:["Name only","Short and simple","Only numbers","Mix of upper/lower/numbers/symbols 12+ chars"],ans:3,topic:"Security Basics"},
+      {q:"What is 2FA?",opts:["None","Two usernames","Two different verification methods","Two passwords"],ans:2,topic:"Authentication"},
+      {q:"What is encryption?",opts:["None","Compressing data","Converting data to unreadable form using key","Deleting data"],ans:2,topic:"Cryptography"},
+      {q:"What does SSL do?",opts:["Encrypts data between browser and server","None","Speeds connection","Compresses files"],ans:0,topic:"Cryptography"},
+      {q:"What is a port in networking?",opts:["None","Physical connector only","Logical endpoint for specific service","Router"],ans:2,topic:"Networking"},
     ],
     intermediate:[
-      {q:"What is SQL injection?",opts:["Server crash","Inserting malicious SQL to manipulate database queries","Network flood","XSS"],ans:1,topic:"Web Attacks"},
-      {q:"What is XSS (Cross-Site Scripting)?",opts:["Server attack","Injecting malicious scripts into web pages viewed by others","SQL injection","None"],ans:1,topic:"Web Attacks"},
-      {q:"What is CSRF?",opts:["Server error","Cross-Site Request Forgery — tricks authenticated user into unwanted action","XSS","None"],ans:0,topic:"Web Attacks"},
-      {q:"What is a Man-in-the-Middle attack?",opts:["Physical attack","Attacker intercepts communication between two parties","DDoS","None"],ans:1,topic:"Network Attacks"},
-      {q:"What is port scanning?",opts:["Physical scan","Finding open ports on target system — used in reconnaissance","None","Encryption"],ans:1,topic:"Reconnaissance"},
-      {q:"What is Nmap used for?",opts:["Code editing","Network discovery and security scanning","Password cracking","None"],ans:1,topic:"Tools"},
-      {q:"What is Burp Suite?",opts:["Code editor","Web application security testing proxy tool","Network scanner","None"],ans:1,topic:"Tools"},
-      {q:"What does the OSI model describe?",opts:["Programming languages","7-layer framework for network communication","None","Encryption"],ans:1,topic:"Networking"},
-      {q:"What is symmetric encryption?",opts:["Different keys each way","Same key for encryption and decryption","No key needed","None"],ans:1,topic:"Cryptography"},
-      {q:"What is asymmetric encryption?",opts:["Same key","Public key encrypts, private key decrypts","No key","None"],ans:1,topic:"Cryptography"},
-      {q:"What is a hash function?",opts:["Reversible encryption","One-way function producing fixed-size output","Two-way cipher","None"],ans:1,topic:"Cryptography"},
-      {q:"What is MD5?",opts:["Encryption algorithm","Hashing algorithm (now considered weak)","Firewall","None"],ans:1,topic:"Cryptography"},
-      {q:"What is a rainbow table attack?",opts:["Color attack","Pre-computed hash lookup table to crack passwords","DDoS","None"],ans:1,topic:"Attacks"},
-      {q:"What is privilege escalation?",opts:["Upgrading software","Gaining higher access rights than intended","None","User creation"],ans:1,topic:"Exploitation"},
-      {q:"What is a reverse shell?",opts:["Backwards SSH","Target machine connects back to attacker giving shell access","None","Normal shell"],ans:1,topic:"Exploitation"},
-      {q:"What is CTF?",opts:["Code The Flag","Capture The Flag — cybersecurity competition solving challenges","Cyber Task Force","None"],ans:1,topic:"CTF"},
-      {q:"What is Wireshark?",opts:["Code editor","Network packet analyzer","Password cracker","None"],ans:1,topic:"Tools"},
-      {q:"What is a zero-day vulnerability?",opts:["Old bug","Unknown vulnerability with no patch yet available","Fixed bug","None"],ans:1,topic:"Vulnerabilities"},
-      {q:"What is penetration testing?",opts:["Speed test","Authorized simulated attack to find security weaknesses","Database test","None"],ans:1,topic:"Pen Testing"},
-      {q:"What is an IDS/IPS?",opts:["Internet Download System","Intrusion Detection/Prevention System — monitors for attacks","None","Firewall"],ans:1,topic:"Defense"},
+      {q:"What is SQL injection?",opts:["Network flood","Server crash","Inserting malicious SQL to manipulate database","XSS"],ans:2,topic:"Web Attacks"},
+      {q:"What is XSS?",opts:["None","Injecting malicious scripts into web pages others view","Server attack","SQL injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is CSRF?",opts:["Tricks authenticated user into unwanted action","Server error","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is SSRF?",opts:["SQL attack","Server Speed","Server makes unintended requests via user input","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is XXE?",opts:["CSS attack","SQL injection","None","XML External Entity — exploiting XML parsers"],ans:3,topic:"Web Attacks"},
+      {q:"What is IDOR?",opts:["None","Attack type","Internal Design","Insecure Direct Object Reference — unauthorized access"],ans:3,topic:"Web Attacks"},
+      {q:"What is path traversal?",opts:["None","../../../ to access files outside web root","Directory hack","File traversal"],ans:1,topic:"Web Attacks"},
+      {q:"What is command injection?",opts:["None","Injecting OS commands via user input","SQL injection","Code injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is LDAP injection?",opts:["Injecting LDAP statements into directory queries","SQL variant","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is HTTP request smuggling?",opts:["None","Request attack","Sending ambiguous requests exploiting frontend-backend difference","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is clickjacking?",opts:["UI trick","None","Hiding malicious elements under legitimate UI","Click attack"],ans:2,topic:"Web Attacks"},
+      {q:"What is open redirect?",opts:["Redirect attack","URL trick","Redirecting to attacker-controlled URL","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is OWASP Top 10?",opts:["List of 10 most critical web security risks","10 languages","None","10 tools"],ans:0,topic:"Web Security"},
+      {q:"What is a WAF?",opts:["Web Antivirus","None","Web Application Firewall — filters HTTP traffic","None"],ans:2,topic:"Defense"},
+      {q:"What is a honeypot?",opts:["Data trap","Decoy system to detect and study attackers","None","Bee trap"],ans:1,topic:"Defense"},
+      {q:"What is intrusion detection?",opts:["Intrusion prevention","None","None","Monitoring for suspicious activity"],ans:3,topic:"Defense"},
+      {q:"What is IDS vs IPS?",opts:["None","IDS detects, IPS also prevents","Same thing","IPS only detects"],ans:1,topic:"Defense"},
+      {q:"What is SIEM?",opts:["None","Security software","Security Info and Event Management — log correlation","None"],ans:2,topic:"Defense"},
+      {q:"What is threat hunting?",opts:["Proactively searching for threats in network","Passive defense","Auto detection","None"],ans:0,topic:"Defense"},
+      {q:"What is vulnerability assessment?",opts:["Identifying and prioritizing vulnerabilities","Penetration test","Threat hunt","None"],ans:0,topic:"Assessment"},
+      {q:"What is penetration testing?",opts:["None","Database test","Speed test","Authorized simulated attack to find weaknesses"],ans:3,topic:"Assessment"},
+      {q:"What is a CVE?",opts:["Code Vulnerability","Common Vulnerabilities and Exposures — public database","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is CVSS score?",opts:["CVE score","Numerical severity rating for vulnerabilities","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is responsible disclosure?",opts:["Disclosure","Reporting vulnerabilities to vendor before public","None","Bug report"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is bug bounty?",opts:["Test payment","Program paying researchers to find vulnerabilities","None","Bug fix payment"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is port scanning?",opts:["None","Finding open ports on target for reconnaissance","Encryption","Physical scan"],ans:1,topic:"Reconnaissance"},
+      {q:"What is banner grabbing?",opts:["Info grab","Collecting service/version info from open ports","Banner attack","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fingerprinting?",opts:["ID check","Identifying OS and software from network behavior","Fingerprint steal","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fuzzing?",opts:["Blurring data","Automated testing with random inputs to find crashes","None","Encryption"],ans:1,topic:"Testing"},
+      {q:"What is static analysis?",opts:["Analyzing code without executing it","Code review","None","Dynamic analysis"],ans:0,topic:"Malware Analysis"},
+      {q:"What is dynamic analysis?",opts:["Code review","None","Analyzing software behavior during execution","Static analysis"],ans:2,topic:"Malware Analysis"},
+      {q:"What is a sandbox?",opts:["Safe box","Isolated environment for safely running malware","Secure container","None"],ans:1,topic:"Malware Analysis"},
+      {q:"What is reverse engineering?",opts:["None","Code analysis","Understanding binary without source code","Decompiling"],ans:2,topic:"Reversing"},
+      {q:"What is a disassembler?",opts:["Decompiler","None","Converts machine code to assembly language","Debugger"],ans:2,topic:"Reversing Tools"},
+      {q:"What is a decompiler?",opts:["Converts machine code to high-level language","Debugger","Disassembler","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is GDB?",opts:["GNU Debugger for binary analysis","G debugger","GNU Database","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is IDA Pro?",opts:["IDA class","None","Industry-standard disassembler/decompiler","None"],ans:2,topic:"Reversing Tools"},
+      {q:"What is Ghidra?",opts:["None","Ghost tool","None","NSA's free reverse engineering framework"],ans:3,topic:"Reversing Tools"},
+      {q:"What is x64dbg?",opts:["None","None","64 debugger","Windows binary debugger for malware analysis"],ans:3,topic:"Reversing Tools"},
+      {q:"What is a buffer overflow?",opts:["Array error","Memory error","Writing beyond buffer to overwrite adjacent memory","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a stack buffer overflow?",opts:["Stack error","Overwriting return address on stack","None","Buffer error"],ans:1,topic:"Binary Exploitation"},
+      {q:"What is a heap overflow?",opts:["Buffer error","None","Heap error","Overwriting heap metadata or adjacent chunks"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ASLR?",opts:["None","ASLR class","None","Address Space Layout Randomization — randomizes addresses"],ans:3,topic:"Mitigations"},
+      {q:"What is DEP/NX?",opts:["None","Data Execution Prevention — marks memory non-executable","None","No Execute"],ans:1,topic:"Mitigations"},
+      {q:"What is stack canary?",opts:["None","Random value detecting stack smashing","None","Stack guard"],ans:1,topic:"Mitigations"},
+      {q:"What is PIE?",opts:["Position Independent Executable — enables ASLR for binary","None","PIE chart","None"],ans:0,topic:"Mitigations"},
+      {q:"What is ROP?",opts:["None","None","Return attack","Return-Oriented Programming — chains existing code gadgets"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ret2libc?",opts:["None","None","Exploit redirecting to libc function like system()","Return to lib"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is heap spraying?",opts:["Heap fill","None","Filling heap with shellcode for reliable exploitation","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a format string vulnerability?",opts:["None","None","Improper printf allows memory read/write","String error"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is Use-After-Free?",opts:["Using freed memory — can lead to code execution","UAF","None","None"],ans:0,topic:"Binary Exploitation"},
+      {q:"What is SQL injection?",opts:["Network flood","Server crash","Inserting malicious SQL to manipulate database","XSS"],ans:2,topic:"Web Attacks"},
+      {q:"What is XSS?",opts:["None","Injecting malicious scripts into web pages others view","Server attack","SQL injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is CSRF?",opts:["Tricks authenticated user into unwanted action","Server error","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is SSRF?",opts:["SQL attack","Server Speed","Server makes unintended requests via user input","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is XXE?",opts:["CSS attack","SQL injection","None","XML External Entity — exploiting XML parsers"],ans:3,topic:"Web Attacks"},
+      {q:"What is IDOR?",opts:["None","Attack type","Internal Design","Insecure Direct Object Reference — unauthorized access"],ans:3,topic:"Web Attacks"},
+      {q:"What is path traversal?",opts:["None","../../../ to access files outside web root","Directory hack","File traversal"],ans:1,topic:"Web Attacks"},
+      {q:"What is command injection?",opts:["None","Injecting OS commands via user input","SQL injection","Code injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is LDAP injection?",opts:["Injecting LDAP statements into directory queries","SQL variant","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is HTTP request smuggling?",opts:["None","Request attack","Sending ambiguous requests exploiting frontend-backend difference","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is clickjacking?",opts:["UI trick","None","Hiding malicious elements under legitimate UI","Click attack"],ans:2,topic:"Web Attacks"},
+      {q:"What is open redirect?",opts:["Redirect attack","URL trick","Redirecting to attacker-controlled URL","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is OWASP Top 10?",opts:["List of 10 most critical web security risks","10 languages","None","10 tools"],ans:0,topic:"Web Security"},
+      {q:"What is a WAF?",opts:["Web Antivirus","None","Web Application Firewall — filters HTTP traffic","None"],ans:2,topic:"Defense"},
+      {q:"What is a honeypot?",opts:["Data trap","Decoy system to detect and study attackers","None","Bee trap"],ans:1,topic:"Defense"},
+      {q:"What is intrusion detection?",opts:["Intrusion prevention","None","None","Monitoring for suspicious activity"],ans:3,topic:"Defense"},
+      {q:"What is IDS vs IPS?",opts:["None","IDS detects, IPS also prevents","Same thing","IPS only detects"],ans:1,topic:"Defense"},
+      {q:"What is SIEM?",opts:["None","Security software","Security Info and Event Management — log correlation","None"],ans:2,topic:"Defense"},
+      {q:"What is threat hunting?",opts:["Proactively searching for threats in network","Passive defense","Auto detection","None"],ans:0,topic:"Defense"},
+      {q:"What is vulnerability assessment?",opts:["Identifying and prioritizing vulnerabilities","Penetration test","Threat hunt","None"],ans:0,topic:"Assessment"},
+      {q:"What is penetration testing?",opts:["None","Database test","Speed test","Authorized simulated attack to find weaknesses"],ans:3,topic:"Assessment"},
+      {q:"What is a CVE?",opts:["Code Vulnerability","Common Vulnerabilities and Exposures — public database","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is CVSS score?",opts:["CVE score","Numerical severity rating for vulnerabilities","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is responsible disclosure?",opts:["Disclosure","Reporting vulnerabilities to vendor before public","None","Bug report"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is bug bounty?",opts:["Test payment","Program paying researchers to find vulnerabilities","None","Bug fix payment"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is port scanning?",opts:["None","Finding open ports on target for reconnaissance","Encryption","Physical scan"],ans:1,topic:"Reconnaissance"},
+      {q:"What is banner grabbing?",opts:["Info grab","Collecting service/version info from open ports","Banner attack","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fingerprinting?",opts:["ID check","Identifying OS and software from network behavior","Fingerprint steal","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fuzzing?",opts:["Blurring data","Automated testing with random inputs to find crashes","None","Encryption"],ans:1,topic:"Testing"},
+      {q:"What is static analysis?",opts:["Analyzing code without executing it","Code review","None","Dynamic analysis"],ans:0,topic:"Malware Analysis"},
+      {q:"What is dynamic analysis?",opts:["Code review","None","Analyzing software behavior during execution","Static analysis"],ans:2,topic:"Malware Analysis"},
+      {q:"What is a sandbox?",opts:["Safe box","Isolated environment for safely running malware","Secure container","None"],ans:1,topic:"Malware Analysis"},
+      {q:"What is reverse engineering?",opts:["None","Code analysis","Understanding binary without source code","Decompiling"],ans:2,topic:"Reversing"},
+      {q:"What is a disassembler?",opts:["Decompiler","None","Converts machine code to assembly language","Debugger"],ans:2,topic:"Reversing Tools"},
+      {q:"What is a decompiler?",opts:["Converts machine code to high-level language","Debugger","Disassembler","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is GDB?",opts:["GNU Debugger for binary analysis","G debugger","GNU Database","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is IDA Pro?",opts:["IDA class","None","Industry-standard disassembler/decompiler","None"],ans:2,topic:"Reversing Tools"},
+      {q:"What is Ghidra?",opts:["None","Ghost tool","None","NSA's free reverse engineering framework"],ans:3,topic:"Reversing Tools"},
+      {q:"What is x64dbg?",opts:["None","None","64 debugger","Windows binary debugger for malware analysis"],ans:3,topic:"Reversing Tools"},
+      {q:"What is a buffer overflow?",opts:["Array error","Memory error","Writing beyond buffer to overwrite adjacent memory","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a stack buffer overflow?",opts:["Stack error","Overwriting return address on stack","None","Buffer error"],ans:1,topic:"Binary Exploitation"},
+      {q:"What is a heap overflow?",opts:["Buffer error","None","Heap error","Overwriting heap metadata or adjacent chunks"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ASLR?",opts:["None","ASLR class","None","Address Space Layout Randomization — randomizes addresses"],ans:3,topic:"Mitigations"},
+      {q:"What is DEP/NX?",opts:["None","Data Execution Prevention — marks memory non-executable","None","No Execute"],ans:1,topic:"Mitigations"},
+      {q:"What is stack canary?",opts:["None","Random value detecting stack smashing","None","Stack guard"],ans:1,topic:"Mitigations"},
+      {q:"What is PIE?",opts:["Position Independent Executable — enables ASLR for binary","None","PIE chart","None"],ans:0,topic:"Mitigations"},
+      {q:"What is ROP?",opts:["None","None","Return attack","Return-Oriented Programming — chains existing code gadgets"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ret2libc?",opts:["None","None","Exploit redirecting to libc function like system()","Return to lib"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is heap spraying?",opts:["Heap fill","None","Filling heap with shellcode for reliable exploitation","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a format string vulnerability?",opts:["None","None","Improper printf allows memory read/write","String error"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is Use-After-Free?",opts:["Using freed memory — can lead to code execution","UAF","None","None"],ans:0,topic:"Binary Exploitation"},
+      {q:"What is SQL injection?",opts:["Network flood","Server crash","Inserting malicious SQL to manipulate database","XSS"],ans:2,topic:"Web Attacks"},
+      {q:"What is XSS?",opts:["None","Injecting malicious scripts into web pages others view","Server attack","SQL injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is CSRF?",opts:["Tricks authenticated user into unwanted action","Server error","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is SSRF?",opts:["SQL attack","Server Speed","Server makes unintended requests via user input","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is XXE?",opts:["CSS attack","SQL injection","None","XML External Entity — exploiting XML parsers"],ans:3,topic:"Web Attacks"},
+      {q:"What is IDOR?",opts:["None","Attack type","Internal Design","Insecure Direct Object Reference — unauthorized access"],ans:3,topic:"Web Attacks"},
+      {q:"What is path traversal?",opts:["None","../../../ to access files outside web root","Directory hack","File traversal"],ans:1,topic:"Web Attacks"},
+      {q:"What is command injection?",opts:["None","Injecting OS commands via user input","SQL injection","Code injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is LDAP injection?",opts:["Injecting LDAP statements into directory queries","SQL variant","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is HTTP request smuggling?",opts:["None","Request attack","Sending ambiguous requests exploiting frontend-backend difference","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is clickjacking?",opts:["UI trick","None","Hiding malicious elements under legitimate UI","Click attack"],ans:2,topic:"Web Attacks"},
+      {q:"What is open redirect?",opts:["Redirect attack","URL trick","Redirecting to attacker-controlled URL","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is OWASP Top 10?",opts:["List of 10 most critical web security risks","10 languages","None","10 tools"],ans:0,topic:"Web Security"},
+      {q:"What is a WAF?",opts:["Web Antivirus","None","Web Application Firewall — filters HTTP traffic","None"],ans:2,topic:"Defense"},
+      {q:"What is a honeypot?",opts:["Data trap","Decoy system to detect and study attackers","None","Bee trap"],ans:1,topic:"Defense"},
+      {q:"What is intrusion detection?",opts:["Intrusion prevention","None","None","Monitoring for suspicious activity"],ans:3,topic:"Defense"},
+      {q:"What is IDS vs IPS?",opts:["None","IDS detects, IPS also prevents","Same thing","IPS only detects"],ans:1,topic:"Defense"},
+      {q:"What is SIEM?",opts:["None","Security software","Security Info and Event Management — log correlation","None"],ans:2,topic:"Defense"},
+      {q:"What is threat hunting?",opts:["Proactively searching for threats in network","Passive defense","Auto detection","None"],ans:0,topic:"Defense"},
+      {q:"What is vulnerability assessment?",opts:["Identifying and prioritizing vulnerabilities","Penetration test","Threat hunt","None"],ans:0,topic:"Assessment"},
+      {q:"What is penetration testing?",opts:["None","Database test","Speed test","Authorized simulated attack to find weaknesses"],ans:3,topic:"Assessment"},
+      {q:"What is a CVE?",opts:["Code Vulnerability","Common Vulnerabilities and Exposures — public database","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is CVSS score?",opts:["CVE score","Numerical severity rating for vulnerabilities","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is responsible disclosure?",opts:["Disclosure","Reporting vulnerabilities to vendor before public","None","Bug report"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is bug bounty?",opts:["Test payment","Program paying researchers to find vulnerabilities","None","Bug fix payment"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is port scanning?",opts:["None","Finding open ports on target for reconnaissance","Encryption","Physical scan"],ans:1,topic:"Reconnaissance"},
+      {q:"What is banner grabbing?",opts:["Info grab","Collecting service/version info from open ports","Banner attack","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fingerprinting?",opts:["ID check","Identifying OS and software from network behavior","Fingerprint steal","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fuzzing?",opts:["Blurring data","Automated testing with random inputs to find crashes","None","Encryption"],ans:1,topic:"Testing"},
+      {q:"What is static analysis?",opts:["Analyzing code without executing it","Code review","None","Dynamic analysis"],ans:0,topic:"Malware Analysis"},
+      {q:"What is dynamic analysis?",opts:["Code review","None","Analyzing software behavior during execution","Static analysis"],ans:2,topic:"Malware Analysis"},
+      {q:"What is a sandbox?",opts:["Safe box","Isolated environment for safely running malware","Secure container","None"],ans:1,topic:"Malware Analysis"},
+      {q:"What is reverse engineering?",opts:["None","Code analysis","Understanding binary without source code","Decompiling"],ans:2,topic:"Reversing"},
+      {q:"What is a disassembler?",opts:["Decompiler","None","Converts machine code to assembly language","Debugger"],ans:2,topic:"Reversing Tools"},
+      {q:"What is a decompiler?",opts:["Converts machine code to high-level language","Debugger","Disassembler","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is GDB?",opts:["GNU Debugger for binary analysis","G debugger","GNU Database","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is IDA Pro?",opts:["IDA class","None","Industry-standard disassembler/decompiler","None"],ans:2,topic:"Reversing Tools"},
+      {q:"What is Ghidra?",opts:["None","Ghost tool","None","NSA's free reverse engineering framework"],ans:3,topic:"Reversing Tools"},
+      {q:"What is x64dbg?",opts:["None","None","64 debugger","Windows binary debugger for malware analysis"],ans:3,topic:"Reversing Tools"},
+      {q:"What is a buffer overflow?",opts:["Array error","Memory error","Writing beyond buffer to overwrite adjacent memory","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a stack buffer overflow?",opts:["Stack error","Overwriting return address on stack","None","Buffer error"],ans:1,topic:"Binary Exploitation"},
+      {q:"What is a heap overflow?",opts:["Buffer error","None","Heap error","Overwriting heap metadata or adjacent chunks"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ASLR?",opts:["None","ASLR class","None","Address Space Layout Randomization — randomizes addresses"],ans:3,topic:"Mitigations"},
+      {q:"What is DEP/NX?",opts:["None","Data Execution Prevention — marks memory non-executable","None","No Execute"],ans:1,topic:"Mitigations"},
+      {q:"What is stack canary?",opts:["None","Random value detecting stack smashing","None","Stack guard"],ans:1,topic:"Mitigations"},
+      {q:"What is PIE?",opts:["Position Independent Executable — enables ASLR for binary","None","PIE chart","None"],ans:0,topic:"Mitigations"},
+      {q:"What is ROP?",opts:["None","None","Return attack","Return-Oriented Programming — chains existing code gadgets"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ret2libc?",opts:["None","None","Exploit redirecting to libc function like system()","Return to lib"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is heap spraying?",opts:["Heap fill","None","Filling heap with shellcode for reliable exploitation","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a format string vulnerability?",opts:["None","None","Improper printf allows memory read/write","String error"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is Use-After-Free?",opts:["Using freed memory — can lead to code execution","UAF","None","None"],ans:0,topic:"Binary Exploitation"},
+      {q:"What is SQL injection?",opts:["Network flood","Server crash","Inserting malicious SQL to manipulate database","XSS"],ans:2,topic:"Web Attacks"},
+      {q:"What is XSS?",opts:["None","Injecting malicious scripts into web pages others view","Server attack","SQL injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is CSRF?",opts:["Tricks authenticated user into unwanted action","Server error","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is SSRF?",opts:["SQL attack","Server Speed","Server makes unintended requests via user input","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is XXE?",opts:["CSS attack","SQL injection","None","XML External Entity — exploiting XML parsers"],ans:3,topic:"Web Attacks"},
+      {q:"What is IDOR?",opts:["None","Attack type","Internal Design","Insecure Direct Object Reference — unauthorized access"],ans:3,topic:"Web Attacks"},
+      {q:"What is path traversal?",opts:["None","../../../ to access files outside web root","Directory hack","File traversal"],ans:1,topic:"Web Attacks"},
+      {q:"What is command injection?",opts:["None","Injecting OS commands via user input","SQL injection","Code injection"],ans:1,topic:"Web Attacks"},
+      {q:"What is LDAP injection?",opts:["Injecting LDAP statements into directory queries","SQL variant","XSS","None"],ans:0,topic:"Web Attacks"},
+      {q:"What is HTTP request smuggling?",opts:["None","Request attack","Sending ambiguous requests exploiting frontend-backend difference","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is clickjacking?",opts:["UI trick","None","Hiding malicious elements under legitimate UI","Click attack"],ans:2,topic:"Web Attacks"},
+      {q:"What is open redirect?",opts:["Redirect attack","URL trick","Redirecting to attacker-controlled URL","None"],ans:2,topic:"Web Attacks"},
+      {q:"What is OWASP Top 10?",opts:["List of 10 most critical web security risks","10 languages","None","10 tools"],ans:0,topic:"Web Security"},
+      {q:"What is a WAF?",opts:["Web Antivirus","None","Web Application Firewall — filters HTTP traffic","None"],ans:2,topic:"Defense"},
+      {q:"What is a honeypot?",opts:["Data trap","Decoy system to detect and study attackers","None","Bee trap"],ans:1,topic:"Defense"},
+      {q:"What is intrusion detection?",opts:["Intrusion prevention","None","None","Monitoring for suspicious activity"],ans:3,topic:"Defense"},
+      {q:"What is IDS vs IPS?",opts:["None","IDS detects, IPS also prevents","Same thing","IPS only detects"],ans:1,topic:"Defense"},
+      {q:"What is SIEM?",opts:["None","Security software","Security Info and Event Management — log correlation","None"],ans:2,topic:"Defense"},
+      {q:"What is threat hunting?",opts:["Proactively searching for threats in network","Passive defense","Auto detection","None"],ans:0,topic:"Defense"},
+      {q:"What is vulnerability assessment?",opts:["Identifying and prioritizing vulnerabilities","Penetration test","Threat hunt","None"],ans:0,topic:"Assessment"},
+      {q:"What is penetration testing?",opts:["None","Database test","Speed test","Authorized simulated attack to find weaknesses"],ans:3,topic:"Assessment"},
+      {q:"What is a CVE?",opts:["Code Vulnerability","Common Vulnerabilities and Exposures — public database","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is CVSS score?",opts:["CVE score","Numerical severity rating for vulnerabilities","None","None"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is responsible disclosure?",opts:["Disclosure","Reporting vulnerabilities to vendor before public","None","Bug report"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is bug bounty?",opts:["Test payment","Program paying researchers to find vulnerabilities","None","Bug fix payment"],ans:1,topic:"Vulnerability Mgmt"},
+      {q:"What is port scanning?",opts:["None","Finding open ports on target for reconnaissance","Encryption","Physical scan"],ans:1,topic:"Reconnaissance"},
+      {q:"What is banner grabbing?",opts:["Info grab","Collecting service/version info from open ports","Banner attack","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fingerprinting?",opts:["ID check","Identifying OS and software from network behavior","Fingerprint steal","None"],ans:1,topic:"Reconnaissance"},
+      {q:"What is fuzzing?",opts:["Blurring data","Automated testing with random inputs to find crashes","None","Encryption"],ans:1,topic:"Testing"},
+      {q:"What is static analysis?",opts:["Analyzing code without executing it","Code review","None","Dynamic analysis"],ans:0,topic:"Malware Analysis"},
+      {q:"What is dynamic analysis?",opts:["Code review","None","Analyzing software behavior during execution","Static analysis"],ans:2,topic:"Malware Analysis"},
+      {q:"What is a sandbox?",opts:["Safe box","Isolated environment for safely running malware","Secure container","None"],ans:1,topic:"Malware Analysis"},
+      {q:"What is reverse engineering?",opts:["None","Code analysis","Understanding binary without source code","Decompiling"],ans:2,topic:"Reversing"},
+      {q:"What is a disassembler?",opts:["Decompiler","None","Converts machine code to assembly language","Debugger"],ans:2,topic:"Reversing Tools"},
+      {q:"What is a decompiler?",opts:["Converts machine code to high-level language","Debugger","Disassembler","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is GDB?",opts:["GNU Debugger for binary analysis","G debugger","GNU Database","None"],ans:0,topic:"Reversing Tools"},
+      {q:"What is IDA Pro?",opts:["IDA class","None","Industry-standard disassembler/decompiler","None"],ans:2,topic:"Reversing Tools"},
+      {q:"What is Ghidra?",opts:["None","Ghost tool","None","NSA's free reverse engineering framework"],ans:3,topic:"Reversing Tools"},
+      {q:"What is x64dbg?",opts:["None","None","64 debugger","Windows binary debugger for malware analysis"],ans:3,topic:"Reversing Tools"},
+      {q:"What is a buffer overflow?",opts:["Array error","Memory error","Writing beyond buffer to overwrite adjacent memory","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is a stack buffer overflow?",opts:["Stack error","Overwriting return address on stack","None","Buffer error"],ans:1,topic:"Binary Exploitation"},
+      {q:"What is a heap overflow?",opts:["Buffer error","None","Heap error","Overwriting heap metadata or adjacent chunks"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is ASLR?",opts:["None","ASLR class","None","Address Space Layout Randomization — randomizes addresses"],ans:3,topic:"Mitigations"},
+      {q:"What is DEP/NX?",opts:["None","Data Execution Prevention — marks memory non-executable","None","No Execute"],ans:1,topic:"Mitigations"},
+      {q:"What is stack canary?",opts:["None","Random value detecting stack smashing","None","Stack guard"],ans:1,topic:"Mitigations"},
+      {q:"What is PIE?",opts:["Position Independent Executable — enables ASLR for binary","None","PIE chart","None"],ans:0,topic:"Mitigations"},
+      {q:"What is ROP?",opts:["None","None","Return attack","Return-Oriented Programming — chains existing code gadgets"],ans:3,topic:"Binary Exploitation"},
     ],
     advanced:[
-      {q:"What is buffer overflow?",opts:["Memory error","Writing beyond allocated buffer to overwrite adjacent memory — can execute code","None","Array error"],ans:1,topic:"Exploitation"},
-      {q:"What is ROP (Return Oriented Programming)?",opts:["Remote operations","Exploitation technique chaining existing code gadgets to bypass defenses","None","Router"],ans:1,topic:"Binary Exploitation"},
-      {q:"What is ASLR?",opts:["Attack Surface","Address Space Layout Randomization — randomizes memory addresses to prevent exploitation","None","Algorithm"],ans:1,topic:"Defense Mechanisms"},
-      {q:"What is DEP/NX?",opts:["Network extension","Data Execution Prevention — marks memory regions non-executable","None","Encryption"],ans:1,topic:"Defense Mechanisms"},
-      {q:"What is heap spraying?",opts:["Memory cleaning","Filling heap with shellcode to increase exploitation reliability","None","Optimization"],ans:1,topic:"Binary Exploitation"},
-      {q:"What is format string vulnerability?",opts:["String error","Improper use of printf-like functions allowing memory read/write","None","SQL injection"],ans:1,topic:"Exploitation"},
-      {q:"What is a Use-After-Free vulnerability?",opts:["Old pointer","Using memory after it's been freed — can lead to code execution","None","Buffer overflow"],ans:1,topic:"Binary Exploitation"},
-      {q:"What is fuzzing?",opts:["Blurring data","Automated testing with random inputs to find crashes/vulnerabilities","None","Encryption"],ans:1,topic:"Testing"},
-      {q:"What is OWASP Top 10?",opts:["10 programming languages","List of 10 most critical web application security risks","None","10 tools"],ans:1,topic:"Web Security"},
-      {q:"What is JWT (JSON Web Token)?",opts:["JavaScript tool","Compact token for securely transmitting claims between parties","None","JSON format"],ans:1,topic:"Authentication"},
-      {q:"What is OAuth?",opts:["Password protocol","Authorization framework allowing third-party limited access without sharing credentials","None","Encryption"],ans:1,topic:"Authentication"},
-      {q:"What is SSRF?",opts:["Server Speed","Server-Side Request Forgery — server makes requests to unintended locations","None","SQL attack"],ans:1,topic:"Web Attacks"},
-      {q:"What is XXE injection?",opts:["CSS attack","XML External Entity — exploiting XML parsers to read files or SSRF","None","SQL injection"],ans:1,topic:"Web Attacks"},
-      {q:"What is IDOR?",opts:["Internal Design","Insecure Direct Object Reference — accessing objects without authorization check","None","Attack type"],ans:1,topic:"Web Attacks"},
-      {q:"What is subdomain enumeration?",opts:["DNS attack","Finding subdomains of target for expanded attack surface","None","Port scan"],ans:1,topic:"Reconnaissance"},
-      {q:"What is a polyglot payload?",opts:["Multi-language code","Payload valid in multiple contexts to bypass filters","None","Hash"],ans:1,topic:"Advanced Web"},
-      {q:"What is timing attack?",opts:["DDoS variant","Side-channel attack measuring execution time to extract secrets","None","Brute force"],ans:1,topic:"Side-channel"},
-      {q:"What is LDAP injection?",opts:["SQL variant","Injecting LDAP statements to manipulate directory service queries","None","XSS"],ans:1,topic:"Injection"},
-      {q:"What is a canary in binary exploitation?",opts:["Bird code","Random value placed before return address to detect stack smashing","None","Pointer"],ans:1,topic:"Defense Mechanisms"},
-      {q:"What is CVE?",opts:["Common Vulnerability Entry","Common Vulnerabilities and Exposures — public database of known vulnerabilities","None","Code version"],ans:1,topic:"Vulnerability Management"},
+      {q:"What is kernel exploitation?",opts:["Exploiting OS kernel for ring 0 privilege","OS exploit","None","Kernel attack"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is a kernel module exploit?",opts:["Exploiting loadable kernel modules","Module attack","None","None"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is SMEP?",opts:["None","SMEP class","None","Supervisor Mode Execution Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is SMAP?",opts:["None","None","SMAP class","Supervisor Mode Access Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is KPTI?",opts:["None","None","Kernel Page Table Isolation — Meltdown mitigation","KPTI class"],ans:2,topic:"Kernel Mitigations"},
+      {q:"What is a race condition exploit?",opts:["None","Race exploit","Exploiting time-of-check to time-of-use gap","TOCTOU"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is a side-channel attack?",opts:["None","Side attack","Extracting secrets via physical measurements","None"],ans:2,topic:"Advanced Attacks"},
+      {q:"What is Spectre?",opts:["Exploits speculative execution to leak memory","None","Meltdown variant","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is Meltdown?",opts:["Spectre variant","None","None","Exploits out-of-order execution to read kernel memory"],ans:3,topic:"Hardware Attacks"},
+      {q:"What is Rowhammer?",opts:["Inducing bit flips in DRAM via repeated access","Row attack","None","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is a timing attack?",opts:["Measuring execution time to extract secrets","None","Time attack","None"],ans:0,topic:"Side Channel"},
+      {q:"What is a power analysis attack?",opts:["Power attack","Measuring power consumption to break crypto","None","None"],ans:1,topic:"Side Channel"},
+      {q:"What is electromagnetic analysis?",opts:["None","EM attack","None","Using EM emissions to extract secrets"],ans:3,topic:"Side Channel"},
+      {q:"What is fault injection?",opts:["None","Fault attack","Inducing hardware faults to bypass security","None"],ans:2,topic:"Hardware Attacks"},
+      {q:"What is glitching?",opts:["None","Voltage/clock glitch to skip security checks","None","Glitch attack"],ans:1,topic:"Hardware Attacks"},
+      {q:"What is JTAG debugging?",opts:["Hardware debugging interface often left open","None","JTAG class","None"],ans:0,topic:"Hardware Security"},
+      {q:"What is firmware analysis?",opts:["None","Extracting and analyzing embedded device firmware","Firmware hack","None"],ans:1,topic:"Embedded Security"},
+      {q:"What is binary diffing?",opts:["None","Comparing binaries to find patch differences","Binary compare","None"],ans:1,topic:"Reversing"},
+      {q:"What is symbolic execution?",opts:["None","Symbol exec","None","Executing program with symbolic inputs to find all paths"],ans:3,topic:"Program Analysis"},
+      {q:"What is taint analysis?",opts:["Taint class","None","None","Tracking how user input flows through program"],ans:3,topic:"Program Analysis"},
+      {q:"What is fuzzing coverage?",opts:["None","Measuring code paths exercised during fuzzing","Fuzz coverage","None"],ans:1,topic:"Fuzzing"},
+      {q:"What is AFL?",opts:["AFL class","None","American Fuzzy Lop — coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is libFuzzer?",opts:["None","Lib fuzzer","LLVM-based in-process coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is a heap metadata attack?",opts:["None","Heap meta","None","Corrupting heap chunk headers for exploitation"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is tcache poisoning?",opts:["None","Cache poison","Corrupting glibc tcache for arbitrary allocation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is house of force?",opts:["None","None","Heap exploit using top chunk manipulation","Force house"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is FSOP?",opts:["File exploit","File Structure Oriented Programming — exploiting FILE*","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is JOP?",opts:["Jump exploit","Jump-Oriented Programming — variant of ROP","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is COOP?",opts:["COOP class","None","None","Counterfeit Object-Oriented Programming"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is heap grooming?",opts:["Heap setup","None","Arranging heap layout for reliable exploitation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is type confusion?",opts:["Treating object as wrong type for exploitation","None","None","Type error"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is an information leak?",opts:["None","Info attack","None","Bypassing ASLR by leaking memory addresses"],ans:3,topic:"Exploitation Techniques"},
+      {q:"What is ROP chain?",opts:["None","None","Chain exploit","Sequence of gadgets redirecting control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is a gadget in ROP?",opts:["ROP piece","None","Short instruction sequence ending in ret","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is ret2plt?",opts:["PLT exploit","None","Redirecting to PLT entry for code execution","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is GOT overwrite?",opts:["None","None","GOT attack","Writing function pointer in GOT for control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is one_gadget?",opts:["None","Magic gadget","Magic gadget in libc giving shell in one call","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is pwntools?",opts:["None","Python library for CTF binary exploitation","None","PWN tools"],ans:1,topic:"CTF Tools"},
+      {q:"What is pwndbg?",opts:["PWN debug","None","None","Enhanced GDB for exploit development"],ans:3,topic:"CTF Tools"},
+      {q:"What is ROPgadget?",opts:["Tool for finding ROP gadgets in binaries","None","None","Gadget finder"],ans:0,topic:"CTF Tools"},
+      {q:"What is kernel exploitation?",opts:["Exploiting OS kernel for ring 0 privilege","OS exploit","None","Kernel attack"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is a kernel module exploit?",opts:["Exploiting loadable kernel modules","Module attack","None","None"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is SMEP?",opts:["None","SMEP class","None","Supervisor Mode Execution Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is SMAP?",opts:["None","None","SMAP class","Supervisor Mode Access Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is KPTI?",opts:["None","None","Kernel Page Table Isolation — Meltdown mitigation","KPTI class"],ans:2,topic:"Kernel Mitigations"},
+      {q:"What is a race condition exploit?",opts:["None","Race exploit","Exploiting time-of-check to time-of-use gap","TOCTOU"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is a side-channel attack?",opts:["None","Side attack","Extracting secrets via physical measurements","None"],ans:2,topic:"Advanced Attacks"},
+      {q:"What is Spectre?",opts:["Exploits speculative execution to leak memory","None","Meltdown variant","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is Meltdown?",opts:["Spectre variant","None","None","Exploits out-of-order execution to read kernel memory"],ans:3,topic:"Hardware Attacks"},
+      {q:"What is Rowhammer?",opts:["Inducing bit flips in DRAM via repeated access","Row attack","None","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is a timing attack?",opts:["Measuring execution time to extract secrets","None","Time attack","None"],ans:0,topic:"Side Channel"},
+      {q:"What is a power analysis attack?",opts:["Power attack","Measuring power consumption to break crypto","None","None"],ans:1,topic:"Side Channel"},
+      {q:"What is electromagnetic analysis?",opts:["None","EM attack","None","Using EM emissions to extract secrets"],ans:3,topic:"Side Channel"},
+      {q:"What is fault injection?",opts:["None","Fault attack","Inducing hardware faults to bypass security","None"],ans:2,topic:"Hardware Attacks"},
+      {q:"What is glitching?",opts:["None","Voltage/clock glitch to skip security checks","None","Glitch attack"],ans:1,topic:"Hardware Attacks"},
+      {q:"What is JTAG debugging?",opts:["Hardware debugging interface often left open","None","JTAG class","None"],ans:0,topic:"Hardware Security"},
+      {q:"What is firmware analysis?",opts:["None","Extracting and analyzing embedded device firmware","Firmware hack","None"],ans:1,topic:"Embedded Security"},
+      {q:"What is binary diffing?",opts:["None","Comparing binaries to find patch differences","Binary compare","None"],ans:1,topic:"Reversing"},
+      {q:"What is symbolic execution?",opts:["None","Symbol exec","None","Executing program with symbolic inputs to find all paths"],ans:3,topic:"Program Analysis"},
+      {q:"What is taint analysis?",opts:["Taint class","None","None","Tracking how user input flows through program"],ans:3,topic:"Program Analysis"},
+      {q:"What is fuzzing coverage?",opts:["None","Measuring code paths exercised during fuzzing","Fuzz coverage","None"],ans:1,topic:"Fuzzing"},
+      {q:"What is AFL?",opts:["AFL class","None","American Fuzzy Lop — coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is libFuzzer?",opts:["None","Lib fuzzer","LLVM-based in-process coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is a heap metadata attack?",opts:["None","Heap meta","None","Corrupting heap chunk headers for exploitation"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is tcache poisoning?",opts:["None","Cache poison","Corrupting glibc tcache for arbitrary allocation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is house of force?",opts:["None","None","Heap exploit using top chunk manipulation","Force house"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is FSOP?",opts:["File exploit","File Structure Oriented Programming — exploiting FILE*","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is JOP?",opts:["Jump exploit","Jump-Oriented Programming — variant of ROP","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is COOP?",opts:["COOP class","None","None","Counterfeit Object-Oriented Programming"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is heap grooming?",opts:["Heap setup","None","Arranging heap layout for reliable exploitation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is type confusion?",opts:["Treating object as wrong type for exploitation","None","None","Type error"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is an information leak?",opts:["None","Info attack","None","Bypassing ASLR by leaking memory addresses"],ans:3,topic:"Exploitation Techniques"},
+      {q:"What is ROP chain?",opts:["None","None","Chain exploit","Sequence of gadgets redirecting control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is a gadget in ROP?",opts:["ROP piece","None","Short instruction sequence ending in ret","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is ret2plt?",opts:["PLT exploit","None","Redirecting to PLT entry for code execution","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is GOT overwrite?",opts:["None","None","GOT attack","Writing function pointer in GOT for control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is one_gadget?",opts:["None","Magic gadget","Magic gadget in libc giving shell in one call","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is pwntools?",opts:["None","Python library for CTF binary exploitation","None","PWN tools"],ans:1,topic:"CTF Tools"},
+      {q:"What is pwndbg?",opts:["PWN debug","None","None","Enhanced GDB for exploit development"],ans:3,topic:"CTF Tools"},
+      {q:"What is ROPgadget?",opts:["Tool for finding ROP gadgets in binaries","None","None","Gadget finder"],ans:0,topic:"CTF Tools"},
+      {q:"What is kernel exploitation?",opts:["Exploiting OS kernel for ring 0 privilege","OS exploit","None","Kernel attack"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is a kernel module exploit?",opts:["Exploiting loadable kernel modules","Module attack","None","None"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is SMEP?",opts:["None","SMEP class","None","Supervisor Mode Execution Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is SMAP?",opts:["None","None","SMAP class","Supervisor Mode Access Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is KPTI?",opts:["None","None","Kernel Page Table Isolation — Meltdown mitigation","KPTI class"],ans:2,topic:"Kernel Mitigations"},
+      {q:"What is a race condition exploit?",opts:["None","Race exploit","Exploiting time-of-check to time-of-use gap","TOCTOU"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is a side-channel attack?",opts:["None","Side attack","Extracting secrets via physical measurements","None"],ans:2,topic:"Advanced Attacks"},
+      {q:"What is Spectre?",opts:["Exploits speculative execution to leak memory","None","Meltdown variant","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is Meltdown?",opts:["Spectre variant","None","None","Exploits out-of-order execution to read kernel memory"],ans:3,topic:"Hardware Attacks"},
+      {q:"What is Rowhammer?",opts:["Inducing bit flips in DRAM via repeated access","Row attack","None","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is a timing attack?",opts:["Measuring execution time to extract secrets","None","Time attack","None"],ans:0,topic:"Side Channel"},
+      {q:"What is a power analysis attack?",opts:["Power attack","Measuring power consumption to break crypto","None","None"],ans:1,topic:"Side Channel"},
+      {q:"What is electromagnetic analysis?",opts:["None","EM attack","None","Using EM emissions to extract secrets"],ans:3,topic:"Side Channel"},
+      {q:"What is fault injection?",opts:["None","Fault attack","Inducing hardware faults to bypass security","None"],ans:2,topic:"Hardware Attacks"},
+      {q:"What is glitching?",opts:["None","Voltage/clock glitch to skip security checks","None","Glitch attack"],ans:1,topic:"Hardware Attacks"},
+      {q:"What is JTAG debugging?",opts:["Hardware debugging interface often left open","None","JTAG class","None"],ans:0,topic:"Hardware Security"},
+      {q:"What is firmware analysis?",opts:["None","Extracting and analyzing embedded device firmware","Firmware hack","None"],ans:1,topic:"Embedded Security"},
+      {q:"What is binary diffing?",opts:["None","Comparing binaries to find patch differences","Binary compare","None"],ans:1,topic:"Reversing"},
+      {q:"What is symbolic execution?",opts:["None","Symbol exec","None","Executing program with symbolic inputs to find all paths"],ans:3,topic:"Program Analysis"},
+      {q:"What is taint analysis?",opts:["Taint class","None","None","Tracking how user input flows through program"],ans:3,topic:"Program Analysis"},
+      {q:"What is fuzzing coverage?",opts:["None","Measuring code paths exercised during fuzzing","Fuzz coverage","None"],ans:1,topic:"Fuzzing"},
+      {q:"What is AFL?",opts:["AFL class","None","American Fuzzy Lop — coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is libFuzzer?",opts:["None","Lib fuzzer","LLVM-based in-process coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is a heap metadata attack?",opts:["None","Heap meta","None","Corrupting heap chunk headers for exploitation"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is tcache poisoning?",opts:["None","Cache poison","Corrupting glibc tcache for arbitrary allocation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is house of force?",opts:["None","None","Heap exploit using top chunk manipulation","Force house"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is FSOP?",opts:["File exploit","File Structure Oriented Programming — exploiting FILE*","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is JOP?",opts:["Jump exploit","Jump-Oriented Programming — variant of ROP","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is COOP?",opts:["COOP class","None","None","Counterfeit Object-Oriented Programming"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is heap grooming?",opts:["Heap setup","None","Arranging heap layout for reliable exploitation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is type confusion?",opts:["Treating object as wrong type for exploitation","None","None","Type error"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is an information leak?",opts:["None","Info attack","None","Bypassing ASLR by leaking memory addresses"],ans:3,topic:"Exploitation Techniques"},
+      {q:"What is ROP chain?",opts:["None","None","Chain exploit","Sequence of gadgets redirecting control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is a gadget in ROP?",opts:["ROP piece","None","Short instruction sequence ending in ret","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is ret2plt?",opts:["PLT exploit","None","Redirecting to PLT entry for code execution","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is GOT overwrite?",opts:["None","None","GOT attack","Writing function pointer in GOT for control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is one_gadget?",opts:["None","Magic gadget","Magic gadget in libc giving shell in one call","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is pwntools?",opts:["None","Python library for CTF binary exploitation","None","PWN tools"],ans:1,topic:"CTF Tools"},
+      {q:"What is pwndbg?",opts:["PWN debug","None","None","Enhanced GDB for exploit development"],ans:3,topic:"CTF Tools"},
+      {q:"What is ROPgadget?",opts:["Tool for finding ROP gadgets in binaries","None","None","Gadget finder"],ans:0,topic:"CTF Tools"},
+      {q:"What is kernel exploitation?",opts:["Exploiting OS kernel for ring 0 privilege","OS exploit","None","Kernel attack"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is a kernel module exploit?",opts:["Exploiting loadable kernel modules","Module attack","None","None"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is SMEP?",opts:["None","SMEP class","None","Supervisor Mode Execution Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is SMAP?",opts:["None","None","SMAP class","Supervisor Mode Access Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is KPTI?",opts:["None","None","Kernel Page Table Isolation — Meltdown mitigation","KPTI class"],ans:2,topic:"Kernel Mitigations"},
+      {q:"What is a race condition exploit?",opts:["None","Race exploit","Exploiting time-of-check to time-of-use gap","TOCTOU"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is a side-channel attack?",opts:["None","Side attack","Extracting secrets via physical measurements","None"],ans:2,topic:"Advanced Attacks"},
+      {q:"What is Spectre?",opts:["Exploits speculative execution to leak memory","None","Meltdown variant","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is Meltdown?",opts:["Spectre variant","None","None","Exploits out-of-order execution to read kernel memory"],ans:3,topic:"Hardware Attacks"},
+      {q:"What is Rowhammer?",opts:["Inducing bit flips in DRAM via repeated access","Row attack","None","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is a timing attack?",opts:["Measuring execution time to extract secrets","None","Time attack","None"],ans:0,topic:"Side Channel"},
+      {q:"What is a power analysis attack?",opts:["Power attack","Measuring power consumption to break crypto","None","None"],ans:1,topic:"Side Channel"},
+      {q:"What is electromagnetic analysis?",opts:["None","EM attack","None","Using EM emissions to extract secrets"],ans:3,topic:"Side Channel"},
+      {q:"What is fault injection?",opts:["None","Fault attack","Inducing hardware faults to bypass security","None"],ans:2,topic:"Hardware Attacks"},
+      {q:"What is glitching?",opts:["None","Voltage/clock glitch to skip security checks","None","Glitch attack"],ans:1,topic:"Hardware Attacks"},
+      {q:"What is JTAG debugging?",opts:["Hardware debugging interface often left open","None","JTAG class","None"],ans:0,topic:"Hardware Security"},
+      {q:"What is firmware analysis?",opts:["None","Extracting and analyzing embedded device firmware","Firmware hack","None"],ans:1,topic:"Embedded Security"},
+      {q:"What is binary diffing?",opts:["None","Comparing binaries to find patch differences","Binary compare","None"],ans:1,topic:"Reversing"},
+      {q:"What is symbolic execution?",opts:["None","Symbol exec","None","Executing program with symbolic inputs to find all paths"],ans:3,topic:"Program Analysis"},
+      {q:"What is taint analysis?",opts:["Taint class","None","None","Tracking how user input flows through program"],ans:3,topic:"Program Analysis"},
+      {q:"What is fuzzing coverage?",opts:["None","Measuring code paths exercised during fuzzing","Fuzz coverage","None"],ans:1,topic:"Fuzzing"},
+      {q:"What is AFL?",opts:["AFL class","None","American Fuzzy Lop — coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is libFuzzer?",opts:["None","Lib fuzzer","LLVM-based in-process coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is a heap metadata attack?",opts:["None","Heap meta","None","Corrupting heap chunk headers for exploitation"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is tcache poisoning?",opts:["None","Cache poison","Corrupting glibc tcache for arbitrary allocation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is house of force?",opts:["None","None","Heap exploit using top chunk manipulation","Force house"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is FSOP?",opts:["File exploit","File Structure Oriented Programming — exploiting FILE*","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is JOP?",opts:["Jump exploit","Jump-Oriented Programming — variant of ROP","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is COOP?",opts:["COOP class","None","None","Counterfeit Object-Oriented Programming"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is heap grooming?",opts:["Heap setup","None","Arranging heap layout for reliable exploitation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is type confusion?",opts:["Treating object as wrong type for exploitation","None","None","Type error"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is an information leak?",opts:["None","Info attack","None","Bypassing ASLR by leaking memory addresses"],ans:3,topic:"Exploitation Techniques"},
+      {q:"What is ROP chain?",opts:["None","None","Chain exploit","Sequence of gadgets redirecting control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is a gadget in ROP?",opts:["ROP piece","None","Short instruction sequence ending in ret","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is ret2plt?",opts:["PLT exploit","None","Redirecting to PLT entry for code execution","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is GOT overwrite?",opts:["None","None","GOT attack","Writing function pointer in GOT for control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is one_gadget?",opts:["None","Magic gadget","Magic gadget in libc giving shell in one call","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is pwntools?",opts:["None","Python library for CTF binary exploitation","None","PWN tools"],ans:1,topic:"CTF Tools"},
+      {q:"What is pwndbg?",opts:["PWN debug","None","None","Enhanced GDB for exploit development"],ans:3,topic:"CTF Tools"},
+      {q:"What is ROPgadget?",opts:["Tool for finding ROP gadgets in binaries","None","None","Gadget finder"],ans:0,topic:"CTF Tools"},
+      {q:"What is kernel exploitation?",opts:["Exploiting OS kernel for ring 0 privilege","OS exploit","None","Kernel attack"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is a kernel module exploit?",opts:["Exploiting loadable kernel modules","Module attack","None","None"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is SMEP?",opts:["None","SMEP class","None","Supervisor Mode Execution Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is SMAP?",opts:["None","None","SMAP class","Supervisor Mode Access Prevention"],ans:3,topic:"Kernel Mitigations"},
+      {q:"What is KPTI?",opts:["None","None","Kernel Page Table Isolation — Meltdown mitigation","KPTI class"],ans:2,topic:"Kernel Mitigations"},
+      {q:"What is a race condition exploit?",opts:["None","Race exploit","Exploiting time-of-check to time-of-use gap","TOCTOU"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is a side-channel attack?",opts:["None","Side attack","Extracting secrets via physical measurements","None"],ans:2,topic:"Advanced Attacks"},
+      {q:"What is Spectre?",opts:["Exploits speculative execution to leak memory","None","Meltdown variant","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is Meltdown?",opts:["Spectre variant","None","None","Exploits out-of-order execution to read kernel memory"],ans:3,topic:"Hardware Attacks"},
+      {q:"What is Rowhammer?",opts:["Inducing bit flips in DRAM via repeated access","Row attack","None","None"],ans:0,topic:"Hardware Attacks"},
+      {q:"What is a timing attack?",opts:["Measuring execution time to extract secrets","None","Time attack","None"],ans:0,topic:"Side Channel"},
+      {q:"What is a power analysis attack?",opts:["Power attack","Measuring power consumption to break crypto","None","None"],ans:1,topic:"Side Channel"},
+      {q:"What is electromagnetic analysis?",opts:["None","EM attack","None","Using EM emissions to extract secrets"],ans:3,topic:"Side Channel"},
+      {q:"What is fault injection?",opts:["None","Fault attack","Inducing hardware faults to bypass security","None"],ans:2,topic:"Hardware Attacks"},
+      {q:"What is glitching?",opts:["None","Voltage/clock glitch to skip security checks","None","Glitch attack"],ans:1,topic:"Hardware Attacks"},
+      {q:"What is JTAG debugging?",opts:["Hardware debugging interface often left open","None","JTAG class","None"],ans:0,topic:"Hardware Security"},
+      {q:"What is firmware analysis?",opts:["None","Extracting and analyzing embedded device firmware","Firmware hack","None"],ans:1,topic:"Embedded Security"},
+      {q:"What is binary diffing?",opts:["None","Comparing binaries to find patch differences","Binary compare","None"],ans:1,topic:"Reversing"},
+      {q:"What is symbolic execution?",opts:["None","Symbol exec","None","Executing program with symbolic inputs to find all paths"],ans:3,topic:"Program Analysis"},
+      {q:"What is taint analysis?",opts:["Taint class","None","None","Tracking how user input flows through program"],ans:3,topic:"Program Analysis"},
+      {q:"What is fuzzing coverage?",opts:["None","Measuring code paths exercised during fuzzing","Fuzz coverage","None"],ans:1,topic:"Fuzzing"},
+      {q:"What is AFL?",opts:["AFL class","None","American Fuzzy Lop — coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is libFuzzer?",opts:["None","Lib fuzzer","LLVM-based in-process coverage-guided fuzzer","None"],ans:2,topic:"Fuzzing"},
+      {q:"What is a heap metadata attack?",opts:["None","Heap meta","None","Corrupting heap chunk headers for exploitation"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is tcache poisoning?",opts:["None","Cache poison","Corrupting glibc tcache for arbitrary allocation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is house of force?",opts:["None","None","Heap exploit using top chunk manipulation","Force house"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is FSOP?",opts:["File exploit","File Structure Oriented Programming — exploiting FILE*","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is JOP?",opts:["Jump exploit","Jump-Oriented Programming — variant of ROP","None","None"],ans:1,topic:"Advanced Exploitation"},
+      {q:"What is COOP?",opts:["COOP class","None","None","Counterfeit Object-Oriented Programming"],ans:3,topic:"Advanced Exploitation"},
+      {q:"What is heap grooming?",opts:["Heap setup","None","Arranging heap layout for reliable exploitation","None"],ans:2,topic:"Advanced Exploitation"},
+      {q:"What is type confusion?",opts:["Treating object as wrong type for exploitation","None","None","Type error"],ans:0,topic:"Advanced Exploitation"},
+      {q:"What is an information leak?",opts:["None","Info attack","None","Bypassing ASLR by leaking memory addresses"],ans:3,topic:"Exploitation Techniques"},
+      {q:"What is ROP chain?",opts:["None","None","Chain exploit","Sequence of gadgets redirecting control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is a gadget in ROP?",opts:["ROP piece","None","Short instruction sequence ending in ret","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is ret2plt?",opts:["PLT exploit","None","Redirecting to PLT entry for code execution","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is GOT overwrite?",opts:["None","None","GOT attack","Writing function pointer in GOT for control flow"],ans:3,topic:"Binary Exploitation"},
+      {q:"What is one_gadget?",opts:["None","Magic gadget","Magic gadget in libc giving shell in one call","None"],ans:2,topic:"Binary Exploitation"},
+      {q:"What is pwntools?",opts:["None","Python library for CTF binary exploitation","None","PWN tools"],ans:1,topic:"CTF Tools"},
+      {q:"What is pwndbg?",opts:["PWN debug","None","None","Enhanced GDB for exploit development"],ans:3,topic:"CTF Tools"},
+      {q:"What is ROPgadget?",opts:["Tool for finding ROP gadgets in binaries","None","None","Gadget finder"],ans:0,topic:"CTF Tools"},
     ],
   },
   c6:{
     basic:[
-      {q:"What is time complexity?",opts:["Code length","How runtime grows with input size","Memory used","None"],ans:1,topic:"Complexity"},
-      {q:"What does O(1) mean?",opts:["Linear time","Constant time — doesn't grow with input","Quadratic","None"],ans:1,topic:"Complexity"},
-      {q:"What does O(n) mean?",opts:["Constant","Linear — grows proportionally with input","Quadratic","None"],ans:1,topic:"Complexity"},
-      {q:"What is a competitive programming contest?",opts:["Game","Timed problem-solving with algorithmic challenges","Hackathon","None"],ans:1,topic:"CP Basics"},
-      {q:"What is brute force approach?",opts:["Optimal solution","Try all possibilities to find answer","Greedy","None"],ans:1,topic:"Problem Solving"},
-      {q:"What language is most popular for CP?",opts:["Python","C++ (fastest runtime, STL)","Java","JavaScript"],ans:1,topic:"CP Basics"},
-      {q:"What is a greedy algorithm?",opts:["Always tries all options","Makes locally optimal choice at each step","Uses DP","None"],ans:1,topic:"Greedy"},
-      {q:"What is divide and conquer?",opts:["Greedy approach","Break problem into subproblems, solve, combine","DP","None"],ans:1,topic:"Divide & Conquer"},
-      {q:"What is binary search on answer?",opts:["Searching array","Applying binary search on the answer space (minimize/maximize)","None","None"],ans:1,topic:"Binary Search"},
-      {q:"What is prefix sum?",opts:["First element","Precomputed array where each element is sum of all previous — O(1) range sum","None","None"],ans:1,topic:"Techniques"},
-      {q:"What is BFS used for in CP?",opts:["Sorting","Shortest path in unweighted graph, level traversal","None","None"],ans:1,topic:"Graphs"},
-      {q:"What is DFS used for?",opts:["Shortest path","Exploring all paths, cycle detection, connected components","None","None"],ans:1,topic:"Graphs"},
-      {q:"What is a stack overflow in recursion?",opts:["Array error","Too deep recursion exceeding call stack limit","Compilation error","None"],ans:1,topic:"Recursion"},
-      {q:"What is modular arithmetic?",opts:["Module system","Arithmetic with remainder — (a+b)%m used in large number problems","None","None"],ans:1,topic:"Math"},
-      {q:"What is GCD?",opts:["Greatest Common Divisor","General Code Design","None","None"],ans:0,topic:"Math"},
-      {q:"What is Codeforces?",opts:["Code editor","Competitive programming platform with contests","Social network","None"],ans:1,topic:"Platforms"},
-      {q:"What is a time limit in CP?",opts:["Time to read problem","Maximum execution time allowed for solution","None","None"],ans:1,topic:"CP Basics"},
-      {q:"What is a TLE verdict?",opts:["Wrong answer","Time Limit Exceeded — solution too slow","Compilation error","None"],ans:1,topic:"CP Basics"},
-      {q:"What is a segment in array problems?",opts:["Variable","Contiguous subarray or range","None","None"],ans:1,topic:"Techniques"},
-      {q:"What is two sum problem?",opts:["Adding numbers","Find two elements summing to target — O(n) with hashmap","None","None"],ans:1,topic:"Problems"},
+      {q:"What is time complexity?",opts:["None","How runtime grows with input size","Memory used","Code length"],ans:1,topic:"Complexity"},
+      {q:"What does O(1) mean?",opts:["Constant time — doesn't grow with input","Linear time","Quadratic","None"],ans:0,topic:"Complexity"},
+      {q:"What does O(n) mean?",opts:["None","Quadratic","Linear — grows proportionally with input","Constant"],ans:2,topic:"Complexity"},
+      {q:"What does O(n²) mean?",opts:["Cubic","None","Quadratic — grows as square of input","Linear"],ans:2,topic:"Complexity"},
+      {q:"What does O(log n) mean?",opts:["Logarithmic — halves problem each step","None","Linear","Constant"],ans:0,topic:"Complexity"},
+      {q:"What does O(n log n) mean?",opts:["Quadratic","None","Linearithmic — efficient sorts like merge sort","Linear"],ans:2,topic:"Complexity"},
+      {q:"What is a CP contest?",opts:["Hackathon","Game","None","Timed problem-solving with algorithmic challenges"],ans:3,topic:"CP Basics"},
+      {q:"Most popular CP language?",opts:["JavaScript","Python","Java","C++ (fastest runtime, STL)"],ans:3,topic:"CP Basics"},
+      {q:"What is a greedy algorithm?",opts:["None","Makes locally optimal choice at each step","Uses DP","Tries all options"],ans:1,topic:"Greedy"},
+      {q:"What is divide and conquer?",opts:["DP","Break into subproblems, solve, combine","Greedy approach","None"],ans:1,topic:"Divide & Conquer"},
+      {q:"What is binary search on answer?",opts:["Applying binary search on the answer space","None","None","Searching array"],ans:0,topic:"Binary Search"},
+      {q:"What is prefix sum?",opts:["None","First element","None","Precomputed cumulative sum for O(1) range queries"],ans:3,topic:"Techniques"},
+      {q:"What is BFS used for?",opts:["Sorting","None","None","Shortest path in unweighted graph, level traversal"],ans:3,topic:"Graphs"},
+      {q:"What is DFS used for?",opts:["None","Exploring all paths, cycle detection, components","Shortest path","None"],ans:1,topic:"Graphs"},
+      {q:"What is stack overflow in recursion?",opts:["Too deep recursion exceeding call stack limit","Array error","Compilation error","None"],ans:0,topic:"Recursion"},
+      {q:"What is modular arithmetic?",opts:["Module system","Arithmetic with remainder used in large number problems","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD?",opts:["General Code Design","None","Greatest Common Divisor","None"],ans:2,topic:"Math"},
+      {q:"What is LCM?",opts:["None","Least Common Method","None","Least Common Multiple"],ans:3,topic:"Math"},
+      {q:"What is Codeforces?",opts:["None","Social network","Competitive programming platform with contests","Code editor"],ans:2,topic:"Platforms"},
+      {q:"What is TLE verdict?",opts:["Time Limit Exceeded — solution too slow","Wrong answer","Compilation error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is MLE verdict?",opts:["Memory Limit Exceeded","Module limit","Memory error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is WA verdict?",opts:["Wait Again","None","Wrong Algorithm","Wrong Answer — output doesn't match expected"],ans:3,topic:"CP Basics"},
+      {q:"What is RE verdict?",opts:["None","Run Error","Runtime Error — program crashed","Recursion Error"],ans:2,topic:"CP Basics"},
+      {q:"What is CE verdict?",opts:["Code Error","None","None","Compilation Error — code doesn't compile"],ans:3,topic:"CP Basics"},
+      {q:"What is AC verdict?",opts:["Accepted — correct solution","None","Almost Correct","All Correct"],ans:0,topic:"CP Basics"},
+      {q:"What is partial scoring?",opts:["Half score","Getting points for passing some test cases","Partial answer","None"],ans:1,topic:"CP Basics"},
+      {q:"What is a brute force solution?",opts:["Try all possibilities — usually O(2^n) or O(n!)","Best solution","None","Greedy"],ans:0,topic:"Problem Solving"},
+      {q:"What is a naive solution?",opts:["None","None","Simple but inefficient approach","Perfect solution"],ans:2,topic:"Problem Solving"},
+      {q:"What is an edge case?",opts:["None","None","Error case","Boundary condition that may break solution"],ans:3,topic:"Problem Solving"},
+      {q:"What is the two-sum problem?",opts:["Adding numbers","Find pair summing to target — O(n) with hashmap","None","None"],ans:1,topic:"Problems"},
+      {q:"What is subarray sum?",opts:["Array sum","Sum of contiguous elements in array","None","None"],ans:1,topic:"Problems"},
+      {q:"What is prefix sum for range query?",opts:["Range query","None","None","sum[l..r] = pre[r] - pre[l-1] in O(1)"],ans:3,topic:"Techniques"},
+      {q:"What is the sliding window maximum problem?",opts:["None","Window max","None","Max in every window of size k"],ans:3,topic:"Problems"},
+      {q:"What is the longest common prefix?",opts:["Longest prefix shared by all strings","Common string","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Pigeonhole principle?",opts:["None","n+1 items in n bins — at least one bin has 2","None","Pigeonhole class"],ans:1,topic:"Math"},
+      {q:"What is modular exponentiation?",opts:["Fast power","a^b mod m in O(log b) using fast power","None","None"],ans:1,topic:"Math"},
+      {q:"What is Sieve of Eratosthenes?",opts:["None","None","Prime sieve","Find all primes up to n in O(n log log n)"],ans:3,topic:"Math"},
+      {q:"What is prime factorization?",opts:["Factor decomp","Express n as product of prime numbers","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD via Euclidean algorithm?",opts:["Euclidean GCD","gcd(a,b) = gcd(b, a%b) until b=0","None","None"],ans:1,topic:"Math"},
+      {q:"What is Fibonacci sequence?",opts:["Each number is sum of two preceding: 0,1,1,2,3,5...","None","Fib class","None"],ans:0,topic:"Math"},
+      {q:"What is memoized Fibonacci?",opts:["None","None","Cached Fib","Cache fib(n) results to avoid O(2^n) recursion"],ans:3,topic:"DP"},
+      {q:"What is 1-indexed vs 0-indexed array?",opts:["None","Index type","Starting index 1 vs starting index 0","None"],ans:2,topic:"CP Basics"},
+      {q:"What is fast I/O in C++?",opts:["Fast input","None","None","ios::sync_with_stdio(false); cin.tie(0);"],ans:3,topic:"CP Basics"},
+      {q:"What is a multitest problem?",opts:["None","Multiple test cases per input file","None","Multi test"],ans:1,topic:"CP Basics"},
+      {q:"What is binary search for minimum?",opts:["Min search","None","None","Find min x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is binary search for maximum?",opts:["None","None","Max search","Find max x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is the check function in binary search?",opts:["Check class","None","Returns true/false for mid — must be monotone","None"],ans:2,topic:"Binary Search"},
+      {q:"What is integer overflow?",opts:["None","Overflow error","None","Result exceeds int range — use long long"],ans:3,topic:"CP Basics"},
+      {q:"What is long long in C++?",opts:["None","64-bit integer for large numbers up to ~9.2*10^18","None","Long integer"],ans:1,topic:"CP Basics"},
+      {q:"What is __int128?",opts:["128-bit integer for very large numbers","128 int","None","None"],ans:0,topic:"CP Basics"},
+      {q:"What is pair in C++ STL?",opts:["None","Pair class","Two-element struct pair<int,int>","None"],ans:2,topic:"STL"},
+      {q:"What is make_pair?",opts:["Pair maker","None","None","Creates pair object"],ans:3,topic:"STL"},
+      {q:"What is auto in C++11 for CP?",opts:["None","None","Lets compiler deduce type — shorter code","Auto class"],ans:2,topic:"C++"},
+      {q:"What is range-based for loop?",opts:["None","Range loop","for(auto x : v) — iterates over container","None"],ans:2,topic:"C++"},
+      {q:"What is sort() in STL?",opts:["O(n log n) introsort — faster than manual","None","Sort function","None"],ans:0,topic:"STL"},
+      {q:"What is lower_bound?",opts:["None","Lower bound","None","First element >= value — O(log n) on sorted"],ans:3,topic:"STL"},
+      {q:"What is upper_bound?",opts:["None","None","Upper bound","First element > value — O(log n) on sorted"],ans:3,topic:"STL"},
+      {q:"What is bitset in C++?",opts:["Compact bit array supporting bitwise ops","Bit set","None","None"],ans:0,topic:"STL"},
+      {q:"What is __builtin_popcount?",opts:["Counts set bits in integer","None","None","Pop count"],ans:0,topic:"Bit Tricks"},
+      {q:"What is bit AND used for?",opts:["Bit check","None","Check bit: n & (1<<k)","None"],ans:2,topic:"Bit Tricks"},
+      {q:"What is bit OR used for?",opts:["None","None","Set bit: n | (1<<k)","Bit set"],ans:2,topic:"Bit Tricks"},
+      {q:"What is bit XOR used for?",opts:["None","Bit toggle","None","Toggle bit or check equal: a^a=0"],ans:3,topic:"Bit Tricks"},
+      {q:"What is left shift <<?",opts:["None","None","Right shift","Multiply by 2^k"],ans:3,topic:"Bit Tricks"},
+      {q:"What is right shift >>?",opts:["Divide by 2^k","Left shift","None","None"],ans:0,topic:"Bit Tricks"},
+      {q:"What is n & (n-1)?",opts:["Bit trick","None","None","Clears lowest set bit of n"],ans:3,topic:"Bit Tricks"},
+      {q:"What is n & (-n)?",opts:["None","Returns lowest set bit of n","Lowest bit","None"],ans:1,topic:"Bit Tricks"},
+      {q:"What is a set in STL for CP?",opts:["Ordered unique elements with O(log n) ops","None","None","Set class"],ans:0,topic:"STL"},
+      {q:"What is multiset?",opts:["Multi set","None","None","Like set but allows duplicates"],ans:3,topic:"STL"},
+      {q:"What is map in STL for CP?",opts:["Sorted key-value with O(log n) ops","Map class","None","None"],ans:0,topic:"STL"},
+      {q:"What is unordered_map for CP?",opts:["Hash map","Hash map O(1) average but can TLE on hack","None","None"],ans:1,topic:"STL"},
+      {q:"What is priority_queue for CP?",opts:["PQ class","None","None","Max heap by default — use min heap with negative"],ans:3,topic:"STL"},
+      {q:"What is deque for CP?",opts:["Deque class","None","Double-ended queue for sliding window","None"],ans:2,topic:"STL"},
+      {q:"What is stack for CP?",opts:["Stack class","LIFO for DFS, monotonic stack problems","None","None"],ans:1,topic:"STL"},
+      {q:"What is queue for CP?",opts:["FIFO for BFS","None","None","Queue class"],ans:0,topic:"STL"},
+      {q:"What is a vector in C++ for CP?",opts:["Dynamic array — most used container","None","Vector class","None"],ans:0,topic:"STL"},
+      {q:"What is time complexity?",opts:["None","How runtime grows with input size","Memory used","Code length"],ans:1,topic:"Complexity"},
+      {q:"What does O(1) mean?",opts:["Constant time — doesn't grow with input","Linear time","Quadratic","None"],ans:0,topic:"Complexity"},
+      {q:"What does O(n) mean?",opts:["None","Quadratic","Linear — grows proportionally with input","Constant"],ans:2,topic:"Complexity"},
+      {q:"What does O(n²) mean?",opts:["Cubic","None","Quadratic — grows as square of input","Linear"],ans:2,topic:"Complexity"},
+      {q:"What does O(log n) mean?",opts:["Logarithmic — halves problem each step","None","Linear","Constant"],ans:0,topic:"Complexity"},
+      {q:"What does O(n log n) mean?",opts:["Quadratic","None","Linearithmic — efficient sorts like merge sort","Linear"],ans:2,topic:"Complexity"},
+      {q:"What is a CP contest?",opts:["Hackathon","Game","None","Timed problem-solving with algorithmic challenges"],ans:3,topic:"CP Basics"},
+      {q:"Most popular CP language?",opts:["JavaScript","Python","Java","C++ (fastest runtime, STL)"],ans:3,topic:"CP Basics"},
+      {q:"What is a greedy algorithm?",opts:["None","Makes locally optimal choice at each step","Uses DP","Tries all options"],ans:1,topic:"Greedy"},
+      {q:"What is divide and conquer?",opts:["DP","Break into subproblems, solve, combine","Greedy approach","None"],ans:1,topic:"Divide & Conquer"},
+      {q:"What is binary search on answer?",opts:["Applying binary search on the answer space","None","None","Searching array"],ans:0,topic:"Binary Search"},
+      {q:"What is prefix sum?",opts:["None","First element","None","Precomputed cumulative sum for O(1) range queries"],ans:3,topic:"Techniques"},
+      {q:"What is BFS used for?",opts:["Sorting","None","None","Shortest path in unweighted graph, level traversal"],ans:3,topic:"Graphs"},
+      {q:"What is DFS used for?",opts:["None","Exploring all paths, cycle detection, components","Shortest path","None"],ans:1,topic:"Graphs"},
+      {q:"What is stack overflow in recursion?",opts:["Too deep recursion exceeding call stack limit","Array error","Compilation error","None"],ans:0,topic:"Recursion"},
+      {q:"What is modular arithmetic?",opts:["Module system","Arithmetic with remainder used in large number problems","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD?",opts:["General Code Design","None","Greatest Common Divisor","None"],ans:2,topic:"Math"},
+      {q:"What is LCM?",opts:["None","Least Common Method","None","Least Common Multiple"],ans:3,topic:"Math"},
+      {q:"What is Codeforces?",opts:["None","Social network","Competitive programming platform with contests","Code editor"],ans:2,topic:"Platforms"},
+      {q:"What is TLE verdict?",opts:["Time Limit Exceeded — solution too slow","Wrong answer","Compilation error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is MLE verdict?",opts:["Memory Limit Exceeded","Module limit","Memory error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is WA verdict?",opts:["Wait Again","None","Wrong Algorithm","Wrong Answer — output doesn't match expected"],ans:3,topic:"CP Basics"},
+      {q:"What is RE verdict?",opts:["None","Run Error","Runtime Error — program crashed","Recursion Error"],ans:2,topic:"CP Basics"},
+      {q:"What is CE verdict?",opts:["Code Error","None","None","Compilation Error — code doesn't compile"],ans:3,topic:"CP Basics"},
+      {q:"What is AC verdict?",opts:["Accepted — correct solution","None","Almost Correct","All Correct"],ans:0,topic:"CP Basics"},
+      {q:"What is partial scoring?",opts:["Half score","Getting points for passing some test cases","Partial answer","None"],ans:1,topic:"CP Basics"},
+      {q:"What is a brute force solution?",opts:["Try all possibilities — usually O(2^n) or O(n!)","Best solution","None","Greedy"],ans:0,topic:"Problem Solving"},
+      {q:"What is a naive solution?",opts:["None","None","Simple but inefficient approach","Perfect solution"],ans:2,topic:"Problem Solving"},
+      {q:"What is an edge case?",opts:["None","None","Error case","Boundary condition that may break solution"],ans:3,topic:"Problem Solving"},
+      {q:"What is the two-sum problem?",opts:["Adding numbers","Find pair summing to target — O(n) with hashmap","None","None"],ans:1,topic:"Problems"},
+      {q:"What is subarray sum?",opts:["Array sum","Sum of contiguous elements in array","None","None"],ans:1,topic:"Problems"},
+      {q:"What is prefix sum for range query?",opts:["Range query","None","None","sum[l..r] = pre[r] - pre[l-1] in O(1)"],ans:3,topic:"Techniques"},
+      {q:"What is the sliding window maximum problem?",opts:["None","Window max","None","Max in every window of size k"],ans:3,topic:"Problems"},
+      {q:"What is the longest common prefix?",opts:["Longest prefix shared by all strings","Common string","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Pigeonhole principle?",opts:["None","n+1 items in n bins — at least one bin has 2","None","Pigeonhole class"],ans:1,topic:"Math"},
+      {q:"What is modular exponentiation?",opts:["Fast power","a^b mod m in O(log b) using fast power","None","None"],ans:1,topic:"Math"},
+      {q:"What is Sieve of Eratosthenes?",opts:["None","None","Prime sieve","Find all primes up to n in O(n log log n)"],ans:3,topic:"Math"},
+      {q:"What is prime factorization?",opts:["Factor decomp","Express n as product of prime numbers","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD via Euclidean algorithm?",opts:["Euclidean GCD","gcd(a,b) = gcd(b, a%b) until b=0","None","None"],ans:1,topic:"Math"},
+      {q:"What is Fibonacci sequence?",opts:["Each number is sum of two preceding: 0,1,1,2,3,5...","None","Fib class","None"],ans:0,topic:"Math"},
+      {q:"What is memoized Fibonacci?",opts:["None","None","Cached Fib","Cache fib(n) results to avoid O(2^n) recursion"],ans:3,topic:"DP"},
+      {q:"What is 1-indexed vs 0-indexed array?",opts:["None","Index type","Starting index 1 vs starting index 0","None"],ans:2,topic:"CP Basics"},
+      {q:"What is fast I/O in C++?",opts:["Fast input","None","None","ios::sync_with_stdio(false); cin.tie(0);"],ans:3,topic:"CP Basics"},
+      {q:"What is a multitest problem?",opts:["None","Multiple test cases per input file","None","Multi test"],ans:1,topic:"CP Basics"},
+      {q:"What is binary search for minimum?",opts:["Min search","None","None","Find min x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is binary search for maximum?",opts:["None","None","Max search","Find max x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is the check function in binary search?",opts:["Check class","None","Returns true/false for mid — must be monotone","None"],ans:2,topic:"Binary Search"},
+      {q:"What is integer overflow?",opts:["None","Overflow error","None","Result exceeds int range — use long long"],ans:3,topic:"CP Basics"},
+      {q:"What is long long in C++?",opts:["None","64-bit integer for large numbers up to ~9.2*10^18","None","Long integer"],ans:1,topic:"CP Basics"},
+      {q:"What is __int128?",opts:["128-bit integer for very large numbers","128 int","None","None"],ans:0,topic:"CP Basics"},
+      {q:"What is pair in C++ STL?",opts:["None","Pair class","Two-element struct pair<int,int>","None"],ans:2,topic:"STL"},
+      {q:"What is make_pair?",opts:["Pair maker","None","None","Creates pair object"],ans:3,topic:"STL"},
+      {q:"What is auto in C++11 for CP?",opts:["None","None","Lets compiler deduce type — shorter code","Auto class"],ans:2,topic:"C++"},
+      {q:"What is range-based for loop?",opts:["None","Range loop","for(auto x : v) — iterates over container","None"],ans:2,topic:"C++"},
+      {q:"What is sort() in STL?",opts:["O(n log n) introsort — faster than manual","None","Sort function","None"],ans:0,topic:"STL"},
+      {q:"What is lower_bound?",opts:["None","Lower bound","None","First element >= value — O(log n) on sorted"],ans:3,topic:"STL"},
+      {q:"What is upper_bound?",opts:["None","None","Upper bound","First element > value — O(log n) on sorted"],ans:3,topic:"STL"},
+      {q:"What is bitset in C++?",opts:["Compact bit array supporting bitwise ops","Bit set","None","None"],ans:0,topic:"STL"},
+      {q:"What is __builtin_popcount?",opts:["Counts set bits in integer","None","None","Pop count"],ans:0,topic:"Bit Tricks"},
+      {q:"What is bit AND used for?",opts:["Bit check","None","Check bit: n & (1<<k)","None"],ans:2,topic:"Bit Tricks"},
+      {q:"What is bit OR used for?",opts:["None","None","Set bit: n | (1<<k)","Bit set"],ans:2,topic:"Bit Tricks"},
+      {q:"What is bit XOR used for?",opts:["None","Bit toggle","None","Toggle bit or check equal: a^a=0"],ans:3,topic:"Bit Tricks"},
+      {q:"What is left shift <<?",opts:["None","None","Right shift","Multiply by 2^k"],ans:3,topic:"Bit Tricks"},
+      {q:"What is right shift >>?",opts:["Divide by 2^k","Left shift","None","None"],ans:0,topic:"Bit Tricks"},
+      {q:"What is n & (n-1)?",opts:["Bit trick","None","None","Clears lowest set bit of n"],ans:3,topic:"Bit Tricks"},
+      {q:"What is n & (-n)?",opts:["None","Returns lowest set bit of n","Lowest bit","None"],ans:1,topic:"Bit Tricks"},
+      {q:"What is a set in STL for CP?",opts:["Ordered unique elements with O(log n) ops","None","None","Set class"],ans:0,topic:"STL"},
+      {q:"What is multiset?",opts:["Multi set","None","None","Like set but allows duplicates"],ans:3,topic:"STL"},
+      {q:"What is map in STL for CP?",opts:["Sorted key-value with O(log n) ops","Map class","None","None"],ans:0,topic:"STL"},
+      {q:"What is unordered_map for CP?",opts:["Hash map","Hash map O(1) average but can TLE on hack","None","None"],ans:1,topic:"STL"},
+      {q:"What is priority_queue for CP?",opts:["PQ class","None","None","Max heap by default — use min heap with negative"],ans:3,topic:"STL"},
+      {q:"What is deque for CP?",opts:["Deque class","None","Double-ended queue for sliding window","None"],ans:2,topic:"STL"},
+      {q:"What is stack for CP?",opts:["Stack class","LIFO for DFS, monotonic stack problems","None","None"],ans:1,topic:"STL"},
+      {q:"What is queue for CP?",opts:["FIFO for BFS","None","None","Queue class"],ans:0,topic:"STL"},
+      {q:"What is a vector in C++ for CP?",opts:["Dynamic array — most used container","None","Vector class","None"],ans:0,topic:"STL"},
+      {q:"What is time complexity?",opts:["None","How runtime grows with input size","Memory used","Code length"],ans:1,topic:"Complexity"},
+      {q:"What does O(1) mean?",opts:["Constant time — doesn't grow with input","Linear time","Quadratic","None"],ans:0,topic:"Complexity"},
+      {q:"What does O(n) mean?",opts:["None","Quadratic","Linear — grows proportionally with input","Constant"],ans:2,topic:"Complexity"},
+      {q:"What does O(n²) mean?",opts:["Cubic","None","Quadratic — grows as square of input","Linear"],ans:2,topic:"Complexity"},
+      {q:"What does O(log n) mean?",opts:["Logarithmic — halves problem each step","None","Linear","Constant"],ans:0,topic:"Complexity"},
+      {q:"What does O(n log n) mean?",opts:["Quadratic","None","Linearithmic — efficient sorts like merge sort","Linear"],ans:2,topic:"Complexity"},
+      {q:"What is a CP contest?",opts:["Hackathon","Game","None","Timed problem-solving with algorithmic challenges"],ans:3,topic:"CP Basics"},
+      {q:"Most popular CP language?",opts:["JavaScript","Python","Java","C++ (fastest runtime, STL)"],ans:3,topic:"CP Basics"},
+      {q:"What is a greedy algorithm?",opts:["None","Makes locally optimal choice at each step","Uses DP","Tries all options"],ans:1,topic:"Greedy"},
+      {q:"What is divide and conquer?",opts:["DP","Break into subproblems, solve, combine","Greedy approach","None"],ans:1,topic:"Divide & Conquer"},
+      {q:"What is binary search on answer?",opts:["Applying binary search on the answer space","None","None","Searching array"],ans:0,topic:"Binary Search"},
+      {q:"What is prefix sum?",opts:["None","First element","None","Precomputed cumulative sum for O(1) range queries"],ans:3,topic:"Techniques"},
+      {q:"What is BFS used for?",opts:["Sorting","None","None","Shortest path in unweighted graph, level traversal"],ans:3,topic:"Graphs"},
+      {q:"What is DFS used for?",opts:["None","Exploring all paths, cycle detection, components","Shortest path","None"],ans:1,topic:"Graphs"},
+      {q:"What is stack overflow in recursion?",opts:["Too deep recursion exceeding call stack limit","Array error","Compilation error","None"],ans:0,topic:"Recursion"},
+      {q:"What is modular arithmetic?",opts:["Module system","Arithmetic with remainder used in large number problems","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD?",opts:["General Code Design","None","Greatest Common Divisor","None"],ans:2,topic:"Math"},
+      {q:"What is LCM?",opts:["None","Least Common Method","None","Least Common Multiple"],ans:3,topic:"Math"},
+      {q:"What is Codeforces?",opts:["None","Social network","Competitive programming platform with contests","Code editor"],ans:2,topic:"Platforms"},
+      {q:"What is TLE verdict?",opts:["Time Limit Exceeded — solution too slow","Wrong answer","Compilation error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is MLE verdict?",opts:["Memory Limit Exceeded","Module limit","Memory error","None"],ans:0,topic:"CP Basics"},
+      {q:"What is WA verdict?",opts:["Wait Again","None","Wrong Algorithm","Wrong Answer — output doesn't match expected"],ans:3,topic:"CP Basics"},
+      {q:"What is RE verdict?",opts:["None","Run Error","Runtime Error — program crashed","Recursion Error"],ans:2,topic:"CP Basics"},
+      {q:"What is CE verdict?",opts:["Code Error","None","None","Compilation Error — code doesn't compile"],ans:3,topic:"CP Basics"},
+      {q:"What is AC verdict?",opts:["Accepted — correct solution","None","Almost Correct","All Correct"],ans:0,topic:"CP Basics"},
+      {q:"What is partial scoring?",opts:["Half score","Getting points for passing some test cases","Partial answer","None"],ans:1,topic:"CP Basics"},
+      {q:"What is a brute force solution?",opts:["Try all possibilities — usually O(2^n) or O(n!)","Best solution","None","Greedy"],ans:0,topic:"Problem Solving"},
+      {q:"What is a naive solution?",opts:["None","None","Simple but inefficient approach","Perfect solution"],ans:2,topic:"Problem Solving"},
+      {q:"What is an edge case?",opts:["None","None","Error case","Boundary condition that may break solution"],ans:3,topic:"Problem Solving"},
+      {q:"What is the two-sum problem?",opts:["Adding numbers","Find pair summing to target — O(n) with hashmap","None","None"],ans:1,topic:"Problems"},
+      {q:"What is subarray sum?",opts:["Array sum","Sum of contiguous elements in array","None","None"],ans:1,topic:"Problems"},
+      {q:"What is prefix sum for range query?",opts:["Range query","None","None","sum[l..r] = pre[r] - pre[l-1] in O(1)"],ans:3,topic:"Techniques"},
+      {q:"What is the sliding window maximum problem?",opts:["None","Window max","None","Max in every window of size k"],ans:3,topic:"Problems"},
+      {q:"What is the longest common prefix?",opts:["Longest prefix shared by all strings","Common string","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Pigeonhole principle?",opts:["None","n+1 items in n bins — at least one bin has 2","None","Pigeonhole class"],ans:1,topic:"Math"},
+      {q:"What is modular exponentiation?",opts:["Fast power","a^b mod m in O(log b) using fast power","None","None"],ans:1,topic:"Math"},
+      {q:"What is Sieve of Eratosthenes?",opts:["None","None","Prime sieve","Find all primes up to n in O(n log log n)"],ans:3,topic:"Math"},
+      {q:"What is prime factorization?",opts:["Factor decomp","Express n as product of prime numbers","None","None"],ans:1,topic:"Math"},
+      {q:"What is GCD via Euclidean algorithm?",opts:["Euclidean GCD","gcd(a,b) = gcd(b, a%b) until b=0","None","None"],ans:1,topic:"Math"},
+      {q:"What is Fibonacci sequence?",opts:["Each number is sum of two preceding: 0,1,1,2,3,5...","None","Fib class","None"],ans:0,topic:"Math"},
+      {q:"What is memoized Fibonacci?",opts:["None","None","Cached Fib","Cache fib(n) results to avoid O(2^n) recursion"],ans:3,topic:"DP"},
+      {q:"What is 1-indexed vs 0-indexed array?",opts:["None","Index type","Starting index 1 vs starting index 0","None"],ans:2,topic:"CP Basics"},
+      {q:"What is fast I/O in C++?",opts:["Fast input","None","None","ios::sync_with_stdio(false); cin.tie(0);"],ans:3,topic:"CP Basics"},
+      {q:"What is a multitest problem?",opts:["None","Multiple test cases per input file","None","Multi test"],ans:1,topic:"CP Basics"},
+      {q:"What is binary search for minimum?",opts:["Min search","None","None","Find min x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is binary search for maximum?",opts:["None","None","Max search","Find max x satisfying condition with monotone check"],ans:3,topic:"Binary Search"},
+      {q:"What is the check function in binary search?",opts:["Check class","None","Returns true/false for mid — must be monotone","None"],ans:2,topic:"Binary Search"},
+      {q:"What is integer overflow?",opts:["None","Overflow error","None","Result exceeds int range — use long long"],ans:3,topic:"CP Basics"},
+      {q:"What is long long in C++?",opts:["None","64-bit integer for large numbers up to ~9.2*10^18","None","Long integer"],ans:1,topic:"CP Basics"},
+      {q:"What is __int128?",opts:["128-bit integer for very large numbers","128 int","None","None"],ans:0,topic:"CP Basics"},
     ],
     intermediate:[
-      {q:"What is O(n log n) complexity example?",opts:["Bubble sort","Merge sort, quick sort average","Binary search","Hashing"],ans:1,topic:"Complexity"},
-      {q:"What is the sliding window technique?",opts:["Animation","Maintain window of elements, slide to avoid O(n²)","Two loops","None"],ans:1,topic:"Techniques"},
-      {q:"What is two pointers technique?",opts:["Two arrays","Two indices moving toward each other or same direction to solve in O(n)","None","Two loops"],ans:1,topic:"Techniques"},
-      {q:"What is memoization in DP?",opts:["Memory error","Top-down DP — cache results of subproblems to avoid recomputation","None","Tabulation"],ans:1,topic:"DP"},
-      {q:"What is tabulation in DP?",opts:["Table design","Bottom-up DP — fill DP table iteratively","None","Memoization"],ans:1,topic:"DP"},
-      {q:"What is Dijkstra's algorithm for?",opts:["MST","Single-source shortest path with non-negative weights","Sorting","None"],ans:1,topic:"Graphs"},
-      {q:"What is a priority queue used for in Dijkstra?",opts:["Sorting edges","Efficiently get next minimum distance vertex","None","BFS"],ans:1,topic:"Graphs"},
-      {q:"What is a spanning tree?",opts:["Random tree","Subgraph connecting all vertices with minimum edges","None","Full graph"],ans:1,topic:"Graphs"},
-      {q:"What is Kruskal's vs Prim's?",opts:["Same","Both find MST — Kruskal edge-based, Prim vertex-based","Different problems","None"],ans:1,topic:"Graphs"},
-      {q:"What is the coin change problem?",opts:["Money problem","Classic DP: minimum coins to make amount","Greedy only","None"],ans:1,topic:"DP"},
-      {q:"What is LIS (Longest Increasing Subsequence)?",opts:["Longest In Sequence","DP problem: find longest strictly increasing subsequence — O(n log n)","None","None"],ans:1,topic:"DP"},
-      {q:"What is a sparse table?",opts:["Empty table","Data structure for O(1) range minimum/maximum queries after O(n log n) preprocessing","None","Array"],ans:1,topic:"Advanced DS"},
-      {q:"What is binary lifting?",opts:["Array technique","Precomputing ancestors at powers of 2 for LCA and path queries","None","None"],ans:1,topic:"Trees"},
-      {q:"What is a bipartite graph?",opts:["Two components","Graph whose vertices can be 2-colored with no same-color edge","None","None"],ans:1,topic:"Graphs"},
-      {q:"What is cycle detection with DSU?",opts:["BFS","Union-Find: if two vertices in same component have edge — cycle exists","DFS only","None"],ans:1,topic:"Graphs"},
-      {q:"What is Euler's path?",opts:["Shortest path","Path visiting every edge exactly once","None","MST"],ans:1,topic:"Graphs"},
-      {q:"What is SCC (Strongly Connected Component)?",opts:["Single node","Maximal set of vertices mutually reachable — Kosaraju's/Tarjan's","None","Bipartite"],ans:1,topic:"Graphs"},
-      {q:"What is coordinate compression?",opts:["Math compression","Mapping large values to small range to use as array indices","None","None"],ans:1,topic:"Techniques"},
-      {q:"What is the meet-in-the-middle technique?",opts:["Two pointer","Split problem into halves, solve each, combine — reduces O(2^n) to O(2^(n/2))","None","DP"],ans:1,topic:"Techniques"},
-      {q:"What is randomized algorithm?",opts:["Random solution","Algorithm using randomness to improve average performance (e.g. quicksort pivot)","None","Brute force"],ans:1,topic:"Algorithms"},
+      {q:"O(n log n) complexity example?",opts:["Merge sort, Dijkstra with priority queue","Hashing","Bubble sort","Binary search"],ans:0,topic:"Complexity"},
+      {q:"What is sliding window?",opts:["None","Two loops","Maintain subarray window avoiding O(n²)","Animation"],ans:2,topic:"Techniques"},
+      {q:"What is two pointers?",opts:["None","Two indices moving to solve in O(n)","Two loops","Two arrays"],ans:1,topic:"Techniques"},
+      {q:"What is memoization in DP?",opts:["Tabulation","None","Top-down DP — cache subproblem results","Memory error"],ans:2,topic:"DP"},
+      {q:"What is tabulation in DP?",opts:["Bottom-up DP — fill table iteratively","None","Table design","Memoization"],ans:0,topic:"DP"},
+      {q:"What is Dijkstra for?",opts:["Sorting","MST","Single-source shortest path non-negative weights","None"],ans:2,topic:"Graphs"},
+      {q:"What is Bellman-Ford for?",opts:["Shortest path with negative weights O(VE)","Dijkstra","None","MST"],ans:0,topic:"Graphs"},
+      {q:"What is Floyd-Warshall for?",opts:["MST","All-pairs shortest paths O(V³)","Single source","None"],ans:1,topic:"Graphs"},
+      {q:"What is DSU for in CP?",opts:["BFS","DFS","None","Connected components, cycle detection, Kruskal"],ans:3,topic:"Graphs"},
+      {q:"What is binary search on monotone function?",opts:["None","Linear search","None","Find boundary where check flips true/false"],ans:3,topic:"Binary Search"},
+      {q:"What is ternary search?",opts:["None","None","Finds maximum of unimodal function in O(log n)","Binary search"],ans:2,topic:"Searching"},
+      {q:"What is coin change DP?",opts:["None","Min coins to make amount — O(amount * coins)","Money problem","Greedy only"],ans:1,topic:"DP"},
+      {q:"What is LCS DP?",opts:["None","O(m*n) table — dp[i][j] = LCS of first i and j chars","LCS class","None"],ans:1,topic:"DP"},
+      {q:"What is 0/1 Knapsack DP?",opts:["None","None","Knapsack class","dp[i][w] = max value with i items and capacity w"],ans:3,topic:"DP"},
+      {q:"What is LIS in O(n log n)?",opts:["None","None","Maintain array and binary search for position","LIS DP"],ans:2,topic:"DP"},
+      {q:"What is interval DP?",opts:["Range DP","None","None","dp[l][r] covers subproblem on range [l,r]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Bit DP","None","None","States represent subsets using bits"],ans:3,topic:"DP"},
+      {q:"What is digit DP?",opts:["None","None","Counts numbers in range satisfying digit property","Number DP"],ans:2,topic:"DP"},
+      {q:"What is tree DP?",opts:["Tree algorithm","DP on tree — usually process subtrees","None","None"],ans:1,topic:"DP"},
+      {q:"What is rerooting DP?",opts:["Re-root class","None","DP on tree considering each node as root","None"],ans:2,topic:"DP"},
+      {q:"What is SCC in CP?",opts:["None","Strong component","None","Strongly Connected Components via Tarjan/Kosaraju"],ans:3,topic:"Graphs"},
+      {q:"What is bipartite check?",opts:["None","None","BFS/DFS 2-coloring — cycle of odd length = not bipartite","Bipartite test"],ans:2,topic:"Graphs"},
+      {q:"What is topological sort in CP?",opts:["None","Topo sort","None","BFS variant — Kahn's algorithm using in-degree"],ans:3,topic:"Graphs"},
+      {q:"What is cycle detection in directed graph?",opts:["None","Cycle find","None","DFS with visited and recursion stack"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path condition?",opts:["None","Exactly 0 or 2 vertices with odd degree","Euler condition","None"],ans:1,topic:"Graphs"},
+      {q:"What is Hierholzer's algorithm?",opts:["Finds Euler path/circuit in O(E)","Euler algo","None","None"],ans:0,topic:"Graphs"},
+      {q:"What is binary lifting for LCA?",opts:["None","Precompute 2^k ancestors, query in O(log n)","None","LCA class"],ans:1,topic:"Trees"},
+      {q:"What is Euler tour for subtree queries?",opts:["DFS timestamps for range queries on subtrees","None","None","Euler subtree"],ans:0,topic:"Trees"},
+      {q:"What is a monotonic stack?",opts:["Mono stack","None","Stack maintaining monotonic order — next greater","None"],ans:2,topic:"Techniques"},
+      {q:"What is a monotonic deque?",opts:["Deque for sliding window max/min in O(n)","None","None","Mono deque"],ans:0,topic:"Techniques"},
+      {q:"What is offline processing?",opts:["Sort queries to answer more efficiently","None","Offline algo","None"],ans:0,topic:"Techniques"},
+      {q:"What is offline vs online query?",opts:["None","Query type","None","Offline knows all queries, online processes live"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["None","Compression","Map large values to small indices","None"],ans:2,topic:"Techniques"},
+      {q:"What is sqrt decomposition?",opts:["None","Divide into √n blocks for O(√n) operations","None","Block algo"],ans:1,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["None","None","MiM class","Split state space in half — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is randomization in CP?",opts:["Random shuffle to avoid worst-case hacking","Random algo","None","None"],ans:0,topic:"Techniques"},
+      {q:"What is hashing for strings?",opts:["Polynomial rolling hash for O(1) substring compare","String hash","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Z-function?",opts:["None","z[i] = length of longest match with prefix","Z class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is KMP failure function?",opts:["None","None","KMP class","Longest proper prefix which is also suffix"],ans:3,topic:"String Algorithms"},
+      {q:"What is string hashing collision?",opts:["None","None","Hash collision","Two strings having same hash — use double hash"],ans:3,topic:"Strings"},
+      {q:"What is Trie for CP?",opts:["Prefix tree for O(L) insert/search — XOR tricks","Trie class","None","None"],ans:0,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick for CP?",opts:["None","None","Multi-pattern matching — O(n+m+k) total","AC class"],ans:2,topic:"String Algorithms"},
+      {q:"What is number theory for CP?",opts:["None","Primes, GCD, mod inverse, CRT, Euler totient","None","Math theory"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem for modular inverse?",opts:["Fermat inverse","a^(p-1) ≡ 1 mod p, so inverse = a^(p-2) mod p","None","None"],ans:1,topic:"Math"},
+      {q:"What is extended Euclidean algorithm?",opts:["Finds x,y such that ax+by=gcd(a,b)","None","None","Extended GCD"],ans:0,topic:"Math"},
+      {q:"What is CRT for CP?",opts:["CRT class","None","Combines congruences with coprime moduli","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion for CP?",opts:["Count union via alternating sums of intersections","None","None","IE class"],ans:0,topic:"Math"},
+      {q:"What is combinatorics in CP?",opts:["Combo class","Counting combinations, permutations, arrangements","None","None"],ans:1,topic:"Math"},
+      {q:"What is nCr modulo prime?",opts:["nCr mod","Use Pascal's triangle or Fermat + precomputed factorials","None","None"],ans:1,topic:"Math"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates in O(log n)","None","None","Seg tree"],ans:0,topic:"Data Structures"},
+      {q:"What is a Fenwick tree for CP?",opts:["None","O(log n) prefix sum queries and point updates","None","BIT class"],ans:1,topic:"Data Structures"},
+      {q:"O(n log n) complexity example?",opts:["Merge sort, Dijkstra with priority queue","Hashing","Bubble sort","Binary search"],ans:0,topic:"Complexity"},
+      {q:"What is sliding window?",opts:["None","Two loops","Maintain subarray window avoiding O(n²)","Animation"],ans:2,topic:"Techniques"},
+      {q:"What is two pointers?",opts:["None","Two indices moving to solve in O(n)","Two loops","Two arrays"],ans:1,topic:"Techniques"},
+      {q:"What is memoization in DP?",opts:["Tabulation","None","Top-down DP — cache subproblem results","Memory error"],ans:2,topic:"DP"},
+      {q:"What is tabulation in DP?",opts:["Bottom-up DP — fill table iteratively","None","Table design","Memoization"],ans:0,topic:"DP"},
+      {q:"What is Dijkstra for?",opts:["Sorting","MST","Single-source shortest path non-negative weights","None"],ans:2,topic:"Graphs"},
+      {q:"What is Bellman-Ford for?",opts:["Shortest path with negative weights O(VE)","Dijkstra","None","MST"],ans:0,topic:"Graphs"},
+      {q:"What is Floyd-Warshall for?",opts:["MST","All-pairs shortest paths O(V³)","Single source","None"],ans:1,topic:"Graphs"},
+      {q:"What is DSU for in CP?",opts:["BFS","DFS","None","Connected components, cycle detection, Kruskal"],ans:3,topic:"Graphs"},
+      {q:"What is binary search on monotone function?",opts:["None","Linear search","None","Find boundary where check flips true/false"],ans:3,topic:"Binary Search"},
+      {q:"What is ternary search?",opts:["None","None","Finds maximum of unimodal function in O(log n)","Binary search"],ans:2,topic:"Searching"},
+      {q:"What is coin change DP?",opts:["None","Min coins to make amount — O(amount * coins)","Money problem","Greedy only"],ans:1,topic:"DP"},
+      {q:"What is LCS DP?",opts:["None","O(m*n) table — dp[i][j] = LCS of first i and j chars","LCS class","None"],ans:1,topic:"DP"},
+      {q:"What is 0/1 Knapsack DP?",opts:["None","None","Knapsack class","dp[i][w] = max value with i items and capacity w"],ans:3,topic:"DP"},
+      {q:"What is LIS in O(n log n)?",opts:["None","None","Maintain array and binary search for position","LIS DP"],ans:2,topic:"DP"},
+      {q:"What is interval DP?",opts:["Range DP","None","None","dp[l][r] covers subproblem on range [l,r]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Bit DP","None","None","States represent subsets using bits"],ans:3,topic:"DP"},
+      {q:"What is digit DP?",opts:["None","None","Counts numbers in range satisfying digit property","Number DP"],ans:2,topic:"DP"},
+      {q:"What is tree DP?",opts:["Tree algorithm","DP on tree — usually process subtrees","None","None"],ans:1,topic:"DP"},
+      {q:"What is rerooting DP?",opts:["Re-root class","None","DP on tree considering each node as root","None"],ans:2,topic:"DP"},
+      {q:"What is SCC in CP?",opts:["None","Strong component","None","Strongly Connected Components via Tarjan/Kosaraju"],ans:3,topic:"Graphs"},
+      {q:"What is bipartite check?",opts:["None","None","BFS/DFS 2-coloring — cycle of odd length = not bipartite","Bipartite test"],ans:2,topic:"Graphs"},
+      {q:"What is topological sort in CP?",opts:["None","Topo sort","None","BFS variant — Kahn's algorithm using in-degree"],ans:3,topic:"Graphs"},
+      {q:"What is cycle detection in directed graph?",opts:["None","Cycle find","None","DFS with visited and recursion stack"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path condition?",opts:["None","Exactly 0 or 2 vertices with odd degree","Euler condition","None"],ans:1,topic:"Graphs"},
+      {q:"What is Hierholzer's algorithm?",opts:["Finds Euler path/circuit in O(E)","Euler algo","None","None"],ans:0,topic:"Graphs"},
+      {q:"What is binary lifting for LCA?",opts:["None","Precompute 2^k ancestors, query in O(log n)","None","LCA class"],ans:1,topic:"Trees"},
+      {q:"What is Euler tour for subtree queries?",opts:["DFS timestamps for range queries on subtrees","None","None","Euler subtree"],ans:0,topic:"Trees"},
+      {q:"What is a monotonic stack?",opts:["Mono stack","None","Stack maintaining monotonic order — next greater","None"],ans:2,topic:"Techniques"},
+      {q:"What is a monotonic deque?",opts:["Deque for sliding window max/min in O(n)","None","None","Mono deque"],ans:0,topic:"Techniques"},
+      {q:"What is offline processing?",opts:["Sort queries to answer more efficiently","None","Offline algo","None"],ans:0,topic:"Techniques"},
+      {q:"What is offline vs online query?",opts:["None","Query type","None","Offline knows all queries, online processes live"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["None","Compression","Map large values to small indices","None"],ans:2,topic:"Techniques"},
+      {q:"What is sqrt decomposition?",opts:["None","Divide into √n blocks for O(√n) operations","None","Block algo"],ans:1,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["None","None","MiM class","Split state space in half — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is randomization in CP?",opts:["Random shuffle to avoid worst-case hacking","Random algo","None","None"],ans:0,topic:"Techniques"},
+      {q:"What is hashing for strings?",opts:["Polynomial rolling hash for O(1) substring compare","String hash","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Z-function?",opts:["None","z[i] = length of longest match with prefix","Z class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is KMP failure function?",opts:["None","None","KMP class","Longest proper prefix which is also suffix"],ans:3,topic:"String Algorithms"},
+      {q:"What is string hashing collision?",opts:["None","None","Hash collision","Two strings having same hash — use double hash"],ans:3,topic:"Strings"},
+      {q:"What is Trie for CP?",opts:["Prefix tree for O(L) insert/search — XOR tricks","Trie class","None","None"],ans:0,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick for CP?",opts:["None","None","Multi-pattern matching — O(n+m+k) total","AC class"],ans:2,topic:"String Algorithms"},
+      {q:"What is number theory for CP?",opts:["None","Primes, GCD, mod inverse, CRT, Euler totient","None","Math theory"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem for modular inverse?",opts:["Fermat inverse","a^(p-1) ≡ 1 mod p, so inverse = a^(p-2) mod p","None","None"],ans:1,topic:"Math"},
+      {q:"What is extended Euclidean algorithm?",opts:["Finds x,y such that ax+by=gcd(a,b)","None","None","Extended GCD"],ans:0,topic:"Math"},
+      {q:"What is CRT for CP?",opts:["CRT class","None","Combines congruences with coprime moduli","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion for CP?",opts:["Count union via alternating sums of intersections","None","None","IE class"],ans:0,topic:"Math"},
+      {q:"What is combinatorics in CP?",opts:["Combo class","Counting combinations, permutations, arrangements","None","None"],ans:1,topic:"Math"},
+      {q:"What is nCr modulo prime?",opts:["nCr mod","Use Pascal's triangle or Fermat + precomputed factorials","None","None"],ans:1,topic:"Math"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates in O(log n)","None","None","Seg tree"],ans:0,topic:"Data Structures"},
+      {q:"What is a Fenwick tree for CP?",opts:["None","O(log n) prefix sum queries and point updates","None","BIT class"],ans:1,topic:"Data Structures"},
+      {q:"O(n log n) complexity example?",opts:["Merge sort, Dijkstra with priority queue","Hashing","Bubble sort","Binary search"],ans:0,topic:"Complexity"},
+      {q:"What is sliding window?",opts:["None","Two loops","Maintain subarray window avoiding O(n²)","Animation"],ans:2,topic:"Techniques"},
+      {q:"What is two pointers?",opts:["None","Two indices moving to solve in O(n)","Two loops","Two arrays"],ans:1,topic:"Techniques"},
+      {q:"What is memoization in DP?",opts:["Tabulation","None","Top-down DP — cache subproblem results","Memory error"],ans:2,topic:"DP"},
+      {q:"What is tabulation in DP?",opts:["Bottom-up DP — fill table iteratively","None","Table design","Memoization"],ans:0,topic:"DP"},
+      {q:"What is Dijkstra for?",opts:["Sorting","MST","Single-source shortest path non-negative weights","None"],ans:2,topic:"Graphs"},
+      {q:"What is Bellman-Ford for?",opts:["Shortest path with negative weights O(VE)","Dijkstra","None","MST"],ans:0,topic:"Graphs"},
+      {q:"What is Floyd-Warshall for?",opts:["MST","All-pairs shortest paths O(V³)","Single source","None"],ans:1,topic:"Graphs"},
+      {q:"What is DSU for in CP?",opts:["BFS","DFS","None","Connected components, cycle detection, Kruskal"],ans:3,topic:"Graphs"},
+      {q:"What is binary search on monotone function?",opts:["None","Linear search","None","Find boundary where check flips true/false"],ans:3,topic:"Binary Search"},
+      {q:"What is ternary search?",opts:["None","None","Finds maximum of unimodal function in O(log n)","Binary search"],ans:2,topic:"Searching"},
+      {q:"What is coin change DP?",opts:["None","Min coins to make amount — O(amount * coins)","Money problem","Greedy only"],ans:1,topic:"DP"},
+      {q:"What is LCS DP?",opts:["None","O(m*n) table — dp[i][j] = LCS of first i and j chars","LCS class","None"],ans:1,topic:"DP"},
+      {q:"What is 0/1 Knapsack DP?",opts:["None","None","Knapsack class","dp[i][w] = max value with i items and capacity w"],ans:3,topic:"DP"},
+      {q:"What is LIS in O(n log n)?",opts:["None","None","Maintain array and binary search for position","LIS DP"],ans:2,topic:"DP"},
+      {q:"What is interval DP?",opts:["Range DP","None","None","dp[l][r] covers subproblem on range [l,r]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Bit DP","None","None","States represent subsets using bits"],ans:3,topic:"DP"},
+      {q:"What is digit DP?",opts:["None","None","Counts numbers in range satisfying digit property","Number DP"],ans:2,topic:"DP"},
+      {q:"What is tree DP?",opts:["Tree algorithm","DP on tree — usually process subtrees","None","None"],ans:1,topic:"DP"},
+      {q:"What is rerooting DP?",opts:["Re-root class","None","DP on tree considering each node as root","None"],ans:2,topic:"DP"},
+      {q:"What is SCC in CP?",opts:["None","Strong component","None","Strongly Connected Components via Tarjan/Kosaraju"],ans:3,topic:"Graphs"},
+      {q:"What is bipartite check?",opts:["None","None","BFS/DFS 2-coloring — cycle of odd length = not bipartite","Bipartite test"],ans:2,topic:"Graphs"},
+      {q:"What is topological sort in CP?",opts:["None","Topo sort","None","BFS variant — Kahn's algorithm using in-degree"],ans:3,topic:"Graphs"},
+      {q:"What is cycle detection in directed graph?",opts:["None","Cycle find","None","DFS with visited and recursion stack"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path condition?",opts:["None","Exactly 0 or 2 vertices with odd degree","Euler condition","None"],ans:1,topic:"Graphs"},
+      {q:"What is Hierholzer's algorithm?",opts:["Finds Euler path/circuit in O(E)","Euler algo","None","None"],ans:0,topic:"Graphs"},
+      {q:"What is binary lifting for LCA?",opts:["None","Precompute 2^k ancestors, query in O(log n)","None","LCA class"],ans:1,topic:"Trees"},
+      {q:"What is Euler tour for subtree queries?",opts:["DFS timestamps for range queries on subtrees","None","None","Euler subtree"],ans:0,topic:"Trees"},
+      {q:"What is a monotonic stack?",opts:["Mono stack","None","Stack maintaining monotonic order — next greater","None"],ans:2,topic:"Techniques"},
+      {q:"What is a monotonic deque?",opts:["Deque for sliding window max/min in O(n)","None","None","Mono deque"],ans:0,topic:"Techniques"},
+      {q:"What is offline processing?",opts:["Sort queries to answer more efficiently","None","Offline algo","None"],ans:0,topic:"Techniques"},
+      {q:"What is offline vs online query?",opts:["None","Query type","None","Offline knows all queries, online processes live"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["None","Compression","Map large values to small indices","None"],ans:2,topic:"Techniques"},
+      {q:"What is sqrt decomposition?",opts:["None","Divide into √n blocks for O(√n) operations","None","Block algo"],ans:1,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["None","None","MiM class","Split state space in half — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is randomization in CP?",opts:["Random shuffle to avoid worst-case hacking","Random algo","None","None"],ans:0,topic:"Techniques"},
+      {q:"What is hashing for strings?",opts:["Polynomial rolling hash for O(1) substring compare","String hash","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Z-function?",opts:["None","z[i] = length of longest match with prefix","Z class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is KMP failure function?",opts:["None","None","KMP class","Longest proper prefix which is also suffix"],ans:3,topic:"String Algorithms"},
+      {q:"What is string hashing collision?",opts:["None","None","Hash collision","Two strings having same hash — use double hash"],ans:3,topic:"Strings"},
+      {q:"What is Trie for CP?",opts:["Prefix tree for O(L) insert/search — XOR tricks","Trie class","None","None"],ans:0,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick for CP?",opts:["None","None","Multi-pattern matching — O(n+m+k) total","AC class"],ans:2,topic:"String Algorithms"},
+      {q:"What is number theory for CP?",opts:["None","Primes, GCD, mod inverse, CRT, Euler totient","None","Math theory"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem for modular inverse?",opts:["Fermat inverse","a^(p-1) ≡ 1 mod p, so inverse = a^(p-2) mod p","None","None"],ans:1,topic:"Math"},
+      {q:"What is extended Euclidean algorithm?",opts:["Finds x,y such that ax+by=gcd(a,b)","None","None","Extended GCD"],ans:0,topic:"Math"},
+      {q:"What is CRT for CP?",opts:["CRT class","None","Combines congruences with coprime moduli","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion for CP?",opts:["Count union via alternating sums of intersections","None","None","IE class"],ans:0,topic:"Math"},
+      {q:"What is combinatorics in CP?",opts:["Combo class","Counting combinations, permutations, arrangements","None","None"],ans:1,topic:"Math"},
+      {q:"What is nCr modulo prime?",opts:["nCr mod","Use Pascal's triangle or Fermat + precomputed factorials","None","None"],ans:1,topic:"Math"},
+      {q:"What is a segment tree?",opts:["Tree for range queries and point updates in O(log n)","None","None","Seg tree"],ans:0,topic:"Data Structures"},
+      {q:"What is a Fenwick tree for CP?",opts:["None","O(log n) prefix sum queries and point updates","None","BIT class"],ans:1,topic:"Data Structures"},
+      {q:"O(n log n) complexity example?",opts:["Merge sort, Dijkstra with priority queue","Hashing","Bubble sort","Binary search"],ans:0,topic:"Complexity"},
+      {q:"What is sliding window?",opts:["None","Two loops","Maintain subarray window avoiding O(n²)","Animation"],ans:2,topic:"Techniques"},
+      {q:"What is two pointers?",opts:["None","Two indices moving to solve in O(n)","Two loops","Two arrays"],ans:1,topic:"Techniques"},
+      {q:"What is memoization in DP?",opts:["Tabulation","None","Top-down DP — cache subproblem results","Memory error"],ans:2,topic:"DP"},
+      {q:"What is tabulation in DP?",opts:["Bottom-up DP — fill table iteratively","None","Table design","Memoization"],ans:0,topic:"DP"},
+      {q:"What is Dijkstra for?",opts:["Sorting","MST","Single-source shortest path non-negative weights","None"],ans:2,topic:"Graphs"},
+      {q:"What is Bellman-Ford for?",opts:["Shortest path with negative weights O(VE)","Dijkstra","None","MST"],ans:0,topic:"Graphs"},
+      {q:"What is Floyd-Warshall for?",opts:["MST","All-pairs shortest paths O(V³)","Single source","None"],ans:1,topic:"Graphs"},
+      {q:"What is DSU for in CP?",opts:["BFS","DFS","None","Connected components, cycle detection, Kruskal"],ans:3,topic:"Graphs"},
+      {q:"What is binary search on monotone function?",opts:["None","Linear search","None","Find boundary where check flips true/false"],ans:3,topic:"Binary Search"},
+      {q:"What is ternary search?",opts:["None","None","Finds maximum of unimodal function in O(log n)","Binary search"],ans:2,topic:"Searching"},
+      {q:"What is coin change DP?",opts:["None","Min coins to make amount — O(amount * coins)","Money problem","Greedy only"],ans:1,topic:"DP"},
+      {q:"What is LCS DP?",opts:["None","O(m*n) table — dp[i][j] = LCS of first i and j chars","LCS class","None"],ans:1,topic:"DP"},
+      {q:"What is 0/1 Knapsack DP?",opts:["None","None","Knapsack class","dp[i][w] = max value with i items and capacity w"],ans:3,topic:"DP"},
+      {q:"What is LIS in O(n log n)?",opts:["None","None","Maintain array and binary search for position","LIS DP"],ans:2,topic:"DP"},
+      {q:"What is interval DP?",opts:["Range DP","None","None","dp[l][r] covers subproblem on range [l,r]"],ans:3,topic:"DP"},
+      {q:"What is bitmask DP?",opts:["Bit DP","None","None","States represent subsets using bits"],ans:3,topic:"DP"},
+      {q:"What is digit DP?",opts:["None","None","Counts numbers in range satisfying digit property","Number DP"],ans:2,topic:"DP"},
+      {q:"What is tree DP?",opts:["Tree algorithm","DP on tree — usually process subtrees","None","None"],ans:1,topic:"DP"},
+      {q:"What is rerooting DP?",opts:["Re-root class","None","DP on tree considering each node as root","None"],ans:2,topic:"DP"},
+      {q:"What is SCC in CP?",opts:["None","Strong component","None","Strongly Connected Components via Tarjan/Kosaraju"],ans:3,topic:"Graphs"},
+      {q:"What is bipartite check?",opts:["None","None","BFS/DFS 2-coloring — cycle of odd length = not bipartite","Bipartite test"],ans:2,topic:"Graphs"},
+      {q:"What is topological sort in CP?",opts:["None","Topo sort","None","BFS variant — Kahn's algorithm using in-degree"],ans:3,topic:"Graphs"},
+      {q:"What is cycle detection in directed graph?",opts:["None","Cycle find","None","DFS with visited and recursion stack"],ans:3,topic:"Graphs"},
+      {q:"What is Euler path condition?",opts:["None","Exactly 0 or 2 vertices with odd degree","Euler condition","None"],ans:1,topic:"Graphs"},
+      {q:"What is Hierholzer's algorithm?",opts:["Finds Euler path/circuit in O(E)","Euler algo","None","None"],ans:0,topic:"Graphs"},
+      {q:"What is binary lifting for LCA?",opts:["None","Precompute 2^k ancestors, query in O(log n)","None","LCA class"],ans:1,topic:"Trees"},
+      {q:"What is Euler tour for subtree queries?",opts:["DFS timestamps for range queries on subtrees","None","None","Euler subtree"],ans:0,topic:"Trees"},
+      {q:"What is a monotonic stack?",opts:["Mono stack","None","Stack maintaining monotonic order — next greater","None"],ans:2,topic:"Techniques"},
+      {q:"What is a monotonic deque?",opts:["Deque for sliding window max/min in O(n)","None","None","Mono deque"],ans:0,topic:"Techniques"},
+      {q:"What is offline processing?",opts:["Sort queries to answer more efficiently","None","Offline algo","None"],ans:0,topic:"Techniques"},
+      {q:"What is offline vs online query?",opts:["None","Query type","None","Offline knows all queries, online processes live"],ans:3,topic:"Techniques"},
+      {q:"What is coordinate compression?",opts:["None","Compression","Map large values to small indices","None"],ans:2,topic:"Techniques"},
+      {q:"What is sqrt decomposition?",opts:["None","Divide into √n blocks for O(√n) operations","None","Block algo"],ans:1,topic:"Techniques"},
+      {q:"What is meet in the middle?",opts:["None","None","MiM class","Split state space in half — O(2^(n/2))"],ans:3,topic:"Techniques"},
+      {q:"What is randomization in CP?",opts:["Random shuffle to avoid worst-case hacking","Random algo","None","None"],ans:0,topic:"Techniques"},
+      {q:"What is hashing for strings?",opts:["Polynomial rolling hash for O(1) substring compare","String hash","None","None"],ans:0,topic:"Strings"},
+      {q:"What is Z-function?",opts:["None","z[i] = length of longest match with prefix","Z class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is KMP failure function?",opts:["None","None","KMP class","Longest proper prefix which is also suffix"],ans:3,topic:"String Algorithms"},
+      {q:"What is string hashing collision?",opts:["None","None","Hash collision","Two strings having same hash — use double hash"],ans:3,topic:"Strings"},
+      {q:"What is Trie for CP?",opts:["Prefix tree for O(L) insert/search — XOR tricks","Trie class","None","None"],ans:0,topic:"String Algorithms"},
+      {q:"What is Aho-Corasick for CP?",opts:["None","None","Multi-pattern matching — O(n+m+k) total","AC class"],ans:2,topic:"String Algorithms"},
+      {q:"What is number theory for CP?",opts:["None","Primes, GCD, mod inverse, CRT, Euler totient","None","Math theory"],ans:1,topic:"Math"},
+      {q:"What is Fermat's little theorem for modular inverse?",opts:["Fermat inverse","a^(p-1) ≡ 1 mod p, so inverse = a^(p-2) mod p","None","None"],ans:1,topic:"Math"},
+      {q:"What is extended Euclidean algorithm?",opts:["Finds x,y such that ax+by=gcd(a,b)","None","None","Extended GCD"],ans:0,topic:"Math"},
+      {q:"What is CRT for CP?",opts:["CRT class","None","Combines congruences with coprime moduli","None"],ans:2,topic:"Math"},
+      {q:"What is inclusion-exclusion for CP?",opts:["Count union via alternating sums of intersections","None","None","IE class"],ans:0,topic:"Math"},
     ],
     advanced:[
-      {q:"What is Heavy-Light Decomposition (HLD)?",opts:["Graph technique","Tree decomposition into chains for O(log²n) path queries","None","None"],ans:1,topic:"Advanced Trees"},
-      {q:"What is Centroid Decomposition?",opts:["Tree center","Recursively decompose tree at centroid for path/distance problems","None","None"],ans:1,topic:"Advanced Trees"},
-      {q:"What is a Persistent Segment Tree?",opts:["Saved tree","Segment tree with version history — O(log n) per update, access any version","None","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is sqrt decomposition?",opts:["Math operation","Divide array into √n blocks for O(√n) query/update tradeoff","None","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is the Z-algorithm?",opts:["Sorting","For each position, find longest match with string prefix — O(n) string matching","None","None"],ans:1,topic:"String Algorithms"},
-      {q:"What is Aho-Corasick algorithm?",opts:["Sorting","Multi-pattern string matching using automaton — O(n+m+k) total","None","None"],ans:1,topic:"String Algorithms"},
-      {q:"What is Suffix Array?",opts:["Array suffix","Sorted array of all suffixes — enables O(log n) pattern search","None","None"],ans:1,topic:"String Algorithms"},
-      {q:"What is the Convex Hull Trick in DP?",opts:["Geometry trick","Optimization for DP with linear transitions — reduces to O(n) using convex hull","None","None"],ans:1,topic:"Advanced DP"},
-      {q:"What is divide and conquer DP optimization?",opts:["D&C sorting","For DP where opt[i][j] ≤ opt[i][j+1] — reduces O(n²) to O(n log n)","None","None"],ans:1,topic:"Advanced DP"},
-      {q:"What is Knuth's optimization?",opts:["Sorting","DP optimization when opt[i][j-1] ≤ opt[i][j] ≤ opt[i+1][j] — O(n²) to O(n²) with smaller constant","None","None"],ans:1,topic:"Advanced DP"},
-      {q:"What is max flow / min cut?",opts:["Graph weight","Maximum flow through network = minimum cut capacity (Ford-Fulkerson, Dinic's)","None","MST"],ans:1,topic:"Flows"},
-      {q:"What is Dinic's algorithm?",opts:["Simple BFS","Efficient max flow — O(V²E), faster on unit capacity graphs","None","None"],ans:1,topic:"Flows"},
-      {q:"What is bipartite matching?",opts:["Graph coloring","Maximum matching in bipartite graph — applications in assignment problems","None","None"],ans:1,topic:"Flows"},
-      {q:"What is the Hungarian algorithm?",opts:["Origin algorithm","Solves assignment problem (min cost max matching) in O(n³)","None","None"],ans:1,topic:"Flows"},
-      {q:"What is a Lichao tree?",opts:["Tree type","Segment tree variant for line minimization queries in CHT","None","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is matrix exponentiation?",opts:["Math operation","Compute matrix^n in O(k³ log n) — used for linear recurrences in DP","None","None"],ans:1,topic:"Math"},
-      {q:"What is the inclusion-exclusion principle?",opts:["Math rule","Count elements in union using alternating sum of intersections","None","None"],ans:1,topic:"Math"},
-      {q:"What is Mo's algorithm?",opts:["Greedy","Offline range query algorithm using sqrt ordering — O((n+q)√n)","None","None"],ans:1,topic:"Advanced Techniques"},
-      {q:"What is a treap?",opts:["Tree type","BST + heap combined — randomized balanced BST with O(log n) expected operations","None","None"],ans:1,topic:"Advanced DS"},
-      {q:"What is the sprague-grundy theorem?",opts:["Game theory","Any impartial game position has Grundy value; XOR of Grundy values determines winner","None","None"],ans:1,topic:"Game Theory"},
+      {q:"What is Heavy-Light Decomposition?",opts:["HLD class","None","None","Tree into chains for O(log²n) path queries"],ans:3,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","None","Decompose at centroid for path problems O(n log n)","CD class"],ans:2,topic:"Advanced Trees"},
+      {q:"What is Persistent Segment Tree?",opts:["None","None","PST class","Version history — access any past version O(log n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap for CP?",opts:["None","Randomized BST — split/merge in O(log n) expected","None","Treap class"],ans:1,topic:"Advanced DS"},
+      {q:"What is Li Chao tree?",opts:["LC tree","None","Segment tree for line minimization queries","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Convex Hull Trick?",opts:["None","Optimizes linear DP transitions using convex hull","None","CHT class"],ans:1,topic:"Advanced DP"},
+      {q:"What is D&C DP optimization?",opts:["None","DnC DP","None","Monotone opt reduces O(n²) DP to O(n log n)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["None","None","Knuth class","When opt(i,j) monotone — O(n²) from O(n³)"],ans:3,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","SMAWK class","O(n) optimization for totally monotone matrices"],ans:3,topic:"Advanced DP"},
+      {q:"What is aliens trick (Lagrangian relaxation)?",opts:["Aliens DP","None","Adds penalty to remove constraint on exactly k items","None"],ans:2,topic:"Advanced DP"},
+      {q:"What is online convex hull trick?",opts:["CHT for non-monotone queries using Li Chao tree","Online CHT","None","None"],ans:0,topic:"Advanced DP"},
+      {q:"What is matrix exponentiation?",opts:["None","Matrix power","Compute n-th Fibonacci or recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is fast Fourier transform (FFT)?",opts:["None","O(n log n) polynomial multiplication","None","FFT class"],ans:1,topic:"Math"},
+      {q:"What is NTT?",opts:["Number Theoretic Transform — FFT with modular arithmetic","None","NTT class","None"],ans:0,topic:"Math"},
+      {q:"What is XOR convolution?",opts:["None","None","Fast XOR of all subset sums using Walsh-Hadamard","XOR conv"],ans:2,topic:"Math"},
+      {q:"What is Sum over Subsets (SOS) DP?",opts:["SOS class","O(n * 2^n) DP for subset sum over all subsets","None","None"],ans:1,topic:"Math"},
+      {q:"What is Z algorithm for CP?",opts:["O(n) prefix matching array for pattern search","None","None","Z function"],ans:0,topic:"String Algorithms"},
+      {q:"What is suffix array construction?",opts:["None","Sort suffixes in O(n log n) with SA-IS or DC3","None","SA class"],ans:1,topic:"String Algorithms"},
+      {q:"What is LCP array?",opts:["None","LCP class","Longest Common Prefix between adjacent suffixes","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is suffix automaton?",opts:["None","SAM class","None","Compact DAG representing all substrings in O(n)"],ans:3,topic:"String Algorithms"},
+      {q:"What is Palindromic Tree (Eertree)?",opts:["Pal tree","None","Trie of all palindromic substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","Manacher class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is max flow in CP?",opts:["Flow class","None","Dinic's algorithm O(V²E) for max flow","None"],ans:2,topic:"Flows"},
+      {q:"What is min cost max flow?",opts:["None","None","MCMF class","Flow maximizing total cost — SPFA or SSP"],ans:3,topic:"Flows"},
+      {q:"What is bipartite matching in CP?",opts:["BM class","None","None","Hopcroft-Karp O(E√V) — faster than Hungarian"],ans:3,topic:"Flows"},
+      {q:"What is Hall's theorem?",opts:["None","None","Hall class","Bipartite perfect matching exists iff Hall condition holds"],ans:3,topic:"Flows"},
+      {q:"What is Dilworth's theorem?",opts:["None","Dilworth class","Min chains to cover = max antichain in poset","None"],ans:2,topic:"Flows"},
+      {q:"What is Sprague-Grundy for game theory?",opts:["XOR of Grundy values determines winner","None","SG class","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim and Nim-sum?",opts:["None","Nim class","XOR of pile sizes determines winning position","None"],ans:2,topic:"Game Theory"},
+      {q:"What is Green Hackenbush?",opts:["None","None","Graph game with Grundy analysis","GH class"],ans:2,topic:"Game Theory"},
+      {q:"What is Codeforces rating system?",opts:["None","CF rating","None","ELO-based with contest performance adjustments"],ans:3,topic:"CP Meta"},
+      {q:"What is ICPC?",opts:["None","None","ICPC class","International Collegiate Programming Contest"],ans:3,topic:"CP Meta"},
+      {q:"What is IOI?",opts:["None","IOI class","None","International Olympiad in Informatics — high school"],ans:3,topic:"CP Meta"},
+      {q:"What is Atcoder?",opts:["None","Japanese CP platform with high quality problems","None","Atcoder class"],ans:1,topic:"Platforms"},
+      {q:"What is USACO?",opts:["USACO class","None","None","USA Computing Olympiad — 4 divisions"],ans:3,topic:"Platforms"},
+      {q:"What is Hackerrank?",opts:["CP and interview preparation platform","HR class","None","None"],ans:0,topic:"Platforms"},
+      {q:"What is a virtual contest?",opts:["None","None","Virtual class","Upsolving past contest as if live"],ans:3,topic:"CP Meta"},
+      {q:"What is upsolving?",opts:["Upsol class","None","Solving problems you couldn't during contest","None"],ans:2,topic:"CP Meta"},
+      {q:"What is editorial?",opts:["None","None","Editor class","Official solution explanation for contest problems"],ans:3,topic:"CP Meta"},
+      {q:"What is a hack in CF?",opts:["Submitting failing test case against opponent's code","None","None","CF hack"],ans:0,topic:"CP Meta"},
+      {q:"What is Heavy-Light Decomposition?",opts:["HLD class","None","None","Tree into chains for O(log²n) path queries"],ans:3,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","None","Decompose at centroid for path problems O(n log n)","CD class"],ans:2,topic:"Advanced Trees"},
+      {q:"What is Persistent Segment Tree?",opts:["None","None","PST class","Version history — access any past version O(log n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap for CP?",opts:["None","Randomized BST — split/merge in O(log n) expected","None","Treap class"],ans:1,topic:"Advanced DS"},
+      {q:"What is Li Chao tree?",opts:["LC tree","None","Segment tree for line minimization queries","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Convex Hull Trick?",opts:["None","Optimizes linear DP transitions using convex hull","None","CHT class"],ans:1,topic:"Advanced DP"},
+      {q:"What is D&C DP optimization?",opts:["None","DnC DP","None","Monotone opt reduces O(n²) DP to O(n log n)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["None","None","Knuth class","When opt(i,j) monotone — O(n²) from O(n³)"],ans:3,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","SMAWK class","O(n) optimization for totally monotone matrices"],ans:3,topic:"Advanced DP"},
+      {q:"What is aliens trick (Lagrangian relaxation)?",opts:["Aliens DP","None","Adds penalty to remove constraint on exactly k items","None"],ans:2,topic:"Advanced DP"},
+      {q:"What is online convex hull trick?",opts:["CHT for non-monotone queries using Li Chao tree","Online CHT","None","None"],ans:0,topic:"Advanced DP"},
+      {q:"What is matrix exponentiation?",opts:["None","Matrix power","Compute n-th Fibonacci or recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is fast Fourier transform (FFT)?",opts:["None","O(n log n) polynomial multiplication","None","FFT class"],ans:1,topic:"Math"},
+      {q:"What is NTT?",opts:["Number Theoretic Transform — FFT with modular arithmetic","None","NTT class","None"],ans:0,topic:"Math"},
+      {q:"What is XOR convolution?",opts:["None","None","Fast XOR of all subset sums using Walsh-Hadamard","XOR conv"],ans:2,topic:"Math"},
+      {q:"What is Sum over Subsets (SOS) DP?",opts:["SOS class","O(n * 2^n) DP for subset sum over all subsets","None","None"],ans:1,topic:"Math"},
+      {q:"What is Z algorithm for CP?",opts:["O(n) prefix matching array for pattern search","None","None","Z function"],ans:0,topic:"String Algorithms"},
+      {q:"What is suffix array construction?",opts:["None","Sort suffixes in O(n log n) with SA-IS or DC3","None","SA class"],ans:1,topic:"String Algorithms"},
+      {q:"What is LCP array?",opts:["None","LCP class","Longest Common Prefix between adjacent suffixes","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is suffix automaton?",opts:["None","SAM class","None","Compact DAG representing all substrings in O(n)"],ans:3,topic:"String Algorithms"},
+      {q:"What is Palindromic Tree (Eertree)?",opts:["Pal tree","None","Trie of all palindromic substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","Manacher class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is max flow in CP?",opts:["Flow class","None","Dinic's algorithm O(V²E) for max flow","None"],ans:2,topic:"Flows"},
+      {q:"What is min cost max flow?",opts:["None","None","MCMF class","Flow maximizing total cost — SPFA or SSP"],ans:3,topic:"Flows"},
+      {q:"What is bipartite matching in CP?",opts:["BM class","None","None","Hopcroft-Karp O(E√V) — faster than Hungarian"],ans:3,topic:"Flows"},
+      {q:"What is Hall's theorem?",opts:["None","None","Hall class","Bipartite perfect matching exists iff Hall condition holds"],ans:3,topic:"Flows"},
+      {q:"What is Dilworth's theorem?",opts:["None","Dilworth class","Min chains to cover = max antichain in poset","None"],ans:2,topic:"Flows"},
+      {q:"What is Sprague-Grundy for game theory?",opts:["XOR of Grundy values determines winner","None","SG class","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim and Nim-sum?",opts:["None","Nim class","XOR of pile sizes determines winning position","None"],ans:2,topic:"Game Theory"},
+      {q:"What is Green Hackenbush?",opts:["None","None","Graph game with Grundy analysis","GH class"],ans:2,topic:"Game Theory"},
+      {q:"What is Codeforces rating system?",opts:["None","CF rating","None","ELO-based with contest performance adjustments"],ans:3,topic:"CP Meta"},
+      {q:"What is ICPC?",opts:["None","None","ICPC class","International Collegiate Programming Contest"],ans:3,topic:"CP Meta"},
+      {q:"What is IOI?",opts:["None","IOI class","None","International Olympiad in Informatics — high school"],ans:3,topic:"CP Meta"},
+      {q:"What is Atcoder?",opts:["None","Japanese CP platform with high quality problems","None","Atcoder class"],ans:1,topic:"Platforms"},
+      {q:"What is USACO?",opts:["USACO class","None","None","USA Computing Olympiad — 4 divisions"],ans:3,topic:"Platforms"},
+      {q:"What is Hackerrank?",opts:["CP and interview preparation platform","HR class","None","None"],ans:0,topic:"Platforms"},
+      {q:"What is a virtual contest?",opts:["None","None","Virtual class","Upsolving past contest as if live"],ans:3,topic:"CP Meta"},
+      {q:"What is upsolving?",opts:["Upsol class","None","Solving problems you couldn't during contest","None"],ans:2,topic:"CP Meta"},
+      {q:"What is editorial?",opts:["None","None","Editor class","Official solution explanation for contest problems"],ans:3,topic:"CP Meta"},
+      {q:"What is a hack in CF?",opts:["Submitting failing test case against opponent's code","None","None","CF hack"],ans:0,topic:"CP Meta"},
+      {q:"What is Heavy-Light Decomposition?",opts:["HLD class","None","None","Tree into chains for O(log²n) path queries"],ans:3,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","None","Decompose at centroid for path problems O(n log n)","CD class"],ans:2,topic:"Advanced Trees"},
+      {q:"What is Persistent Segment Tree?",opts:["None","None","PST class","Version history — access any past version O(log n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap for CP?",opts:["None","Randomized BST — split/merge in O(log n) expected","None","Treap class"],ans:1,topic:"Advanced DS"},
+      {q:"What is Li Chao tree?",opts:["LC tree","None","Segment tree for line minimization queries","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Convex Hull Trick?",opts:["None","Optimizes linear DP transitions using convex hull","None","CHT class"],ans:1,topic:"Advanced DP"},
+      {q:"What is D&C DP optimization?",opts:["None","DnC DP","None","Monotone opt reduces O(n²) DP to O(n log n)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["None","None","Knuth class","When opt(i,j) monotone — O(n²) from O(n³)"],ans:3,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","SMAWK class","O(n) optimization for totally monotone matrices"],ans:3,topic:"Advanced DP"},
+      {q:"What is aliens trick (Lagrangian relaxation)?",opts:["Aliens DP","None","Adds penalty to remove constraint on exactly k items","None"],ans:2,topic:"Advanced DP"},
+      {q:"What is online convex hull trick?",opts:["CHT for non-monotone queries using Li Chao tree","Online CHT","None","None"],ans:0,topic:"Advanced DP"},
+      {q:"What is matrix exponentiation?",opts:["None","Matrix power","Compute n-th Fibonacci or recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is fast Fourier transform (FFT)?",opts:["None","O(n log n) polynomial multiplication","None","FFT class"],ans:1,topic:"Math"},
+      {q:"What is NTT?",opts:["Number Theoretic Transform — FFT with modular arithmetic","None","NTT class","None"],ans:0,topic:"Math"},
+      {q:"What is XOR convolution?",opts:["None","None","Fast XOR of all subset sums using Walsh-Hadamard","XOR conv"],ans:2,topic:"Math"},
+      {q:"What is Sum over Subsets (SOS) DP?",opts:["SOS class","O(n * 2^n) DP for subset sum over all subsets","None","None"],ans:1,topic:"Math"},
+      {q:"What is Z algorithm for CP?",opts:["O(n) prefix matching array for pattern search","None","None","Z function"],ans:0,topic:"String Algorithms"},
+      {q:"What is suffix array construction?",opts:["None","Sort suffixes in O(n log n) with SA-IS or DC3","None","SA class"],ans:1,topic:"String Algorithms"},
+      {q:"What is LCP array?",opts:["None","LCP class","Longest Common Prefix between adjacent suffixes","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is suffix automaton?",opts:["None","SAM class","None","Compact DAG representing all substrings in O(n)"],ans:3,topic:"String Algorithms"},
+      {q:"What is Palindromic Tree (Eertree)?",opts:["Pal tree","None","Trie of all palindromic substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","Manacher class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is max flow in CP?",opts:["Flow class","None","Dinic's algorithm O(V²E) for max flow","None"],ans:2,topic:"Flows"},
+      {q:"What is min cost max flow?",opts:["None","None","MCMF class","Flow maximizing total cost — SPFA or SSP"],ans:3,topic:"Flows"},
+      {q:"What is bipartite matching in CP?",opts:["BM class","None","None","Hopcroft-Karp O(E√V) — faster than Hungarian"],ans:3,topic:"Flows"},
+      {q:"What is Hall's theorem?",opts:["None","None","Hall class","Bipartite perfect matching exists iff Hall condition holds"],ans:3,topic:"Flows"},
+      {q:"What is Dilworth's theorem?",opts:["None","Dilworth class","Min chains to cover = max antichain in poset","None"],ans:2,topic:"Flows"},
+      {q:"What is Sprague-Grundy for game theory?",opts:["XOR of Grundy values determines winner","None","SG class","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim and Nim-sum?",opts:["None","Nim class","XOR of pile sizes determines winning position","None"],ans:2,topic:"Game Theory"},
+      {q:"What is Green Hackenbush?",opts:["None","None","Graph game with Grundy analysis","GH class"],ans:2,topic:"Game Theory"},
+      {q:"What is Codeforces rating system?",opts:["None","CF rating","None","ELO-based with contest performance adjustments"],ans:3,topic:"CP Meta"},
+      {q:"What is ICPC?",opts:["None","None","ICPC class","International Collegiate Programming Contest"],ans:3,topic:"CP Meta"},
+      {q:"What is IOI?",opts:["None","IOI class","None","International Olympiad in Informatics — high school"],ans:3,topic:"CP Meta"},
+      {q:"What is Atcoder?",opts:["None","Japanese CP platform with high quality problems","None","Atcoder class"],ans:1,topic:"Platforms"},
+      {q:"What is USACO?",opts:["USACO class","None","None","USA Computing Olympiad — 4 divisions"],ans:3,topic:"Platforms"},
+      {q:"What is Hackerrank?",opts:["CP and interview preparation platform","HR class","None","None"],ans:0,topic:"Platforms"},
+      {q:"What is a virtual contest?",opts:["None","None","Virtual class","Upsolving past contest as if live"],ans:3,topic:"CP Meta"},
+      {q:"What is upsolving?",opts:["Upsol class","None","Solving problems you couldn't during contest","None"],ans:2,topic:"CP Meta"},
+      {q:"What is editorial?",opts:["None","None","Editor class","Official solution explanation for contest problems"],ans:3,topic:"CP Meta"},
+      {q:"What is a hack in CF?",opts:["Submitting failing test case against opponent's code","None","None","CF hack"],ans:0,topic:"CP Meta"},
+      {q:"What is Heavy-Light Decomposition?",opts:["HLD class","None","None","Tree into chains for O(log²n) path queries"],ans:3,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","None","Decompose at centroid for path problems O(n log n)","CD class"],ans:2,topic:"Advanced Trees"},
+      {q:"What is Persistent Segment Tree?",opts:["None","None","PST class","Version history — access any past version O(log n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap for CP?",opts:["None","Randomized BST — split/merge in O(log n) expected","None","Treap class"],ans:1,topic:"Advanced DS"},
+      {q:"What is Li Chao tree?",opts:["LC tree","None","Segment tree for line minimization queries","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Convex Hull Trick?",opts:["None","Optimizes linear DP transitions using convex hull","None","CHT class"],ans:1,topic:"Advanced DP"},
+      {q:"What is D&C DP optimization?",opts:["None","DnC DP","None","Monotone opt reduces O(n²) DP to O(n log n)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["None","None","Knuth class","When opt(i,j) monotone — O(n²) from O(n³)"],ans:3,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","SMAWK class","O(n) optimization for totally monotone matrices"],ans:3,topic:"Advanced DP"},
+      {q:"What is aliens trick (Lagrangian relaxation)?",opts:["Aliens DP","None","Adds penalty to remove constraint on exactly k items","None"],ans:2,topic:"Advanced DP"},
+      {q:"What is online convex hull trick?",opts:["CHT for non-monotone queries using Li Chao tree","Online CHT","None","None"],ans:0,topic:"Advanced DP"},
+      {q:"What is matrix exponentiation?",opts:["None","Matrix power","Compute n-th Fibonacci or recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is fast Fourier transform (FFT)?",opts:["None","O(n log n) polynomial multiplication","None","FFT class"],ans:1,topic:"Math"},
+      {q:"What is NTT?",opts:["Number Theoretic Transform — FFT with modular arithmetic","None","NTT class","None"],ans:0,topic:"Math"},
+      {q:"What is XOR convolution?",opts:["None","None","Fast XOR of all subset sums using Walsh-Hadamard","XOR conv"],ans:2,topic:"Math"},
+      {q:"What is Sum over Subsets (SOS) DP?",opts:["SOS class","O(n * 2^n) DP for subset sum over all subsets","None","None"],ans:1,topic:"Math"},
+      {q:"What is Z algorithm for CP?",opts:["O(n) prefix matching array for pattern search","None","None","Z function"],ans:0,topic:"String Algorithms"},
+      {q:"What is suffix array construction?",opts:["None","Sort suffixes in O(n log n) with SA-IS or DC3","None","SA class"],ans:1,topic:"String Algorithms"},
+      {q:"What is LCP array?",opts:["None","LCP class","Longest Common Prefix between adjacent suffixes","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is suffix automaton?",opts:["None","SAM class","None","Compact DAG representing all substrings in O(n)"],ans:3,topic:"String Algorithms"},
+      {q:"What is Palindromic Tree (Eertree)?",opts:["Pal tree","None","Trie of all palindromic substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","Manacher class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is max flow in CP?",opts:["Flow class","None","Dinic's algorithm O(V²E) for max flow","None"],ans:2,topic:"Flows"},
+      {q:"What is min cost max flow?",opts:["None","None","MCMF class","Flow maximizing total cost — SPFA or SSP"],ans:3,topic:"Flows"},
+      {q:"What is bipartite matching in CP?",opts:["BM class","None","None","Hopcroft-Karp O(E√V) — faster than Hungarian"],ans:3,topic:"Flows"},
+      {q:"What is Hall's theorem?",opts:["None","None","Hall class","Bipartite perfect matching exists iff Hall condition holds"],ans:3,topic:"Flows"},
+      {q:"What is Dilworth's theorem?",opts:["None","Dilworth class","Min chains to cover = max antichain in poset","None"],ans:2,topic:"Flows"},
+      {q:"What is Sprague-Grundy for game theory?",opts:["XOR of Grundy values determines winner","None","SG class","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim and Nim-sum?",opts:["None","Nim class","XOR of pile sizes determines winning position","None"],ans:2,topic:"Game Theory"},
+      {q:"What is Green Hackenbush?",opts:["None","None","Graph game with Grundy analysis","GH class"],ans:2,topic:"Game Theory"},
+      {q:"What is Codeforces rating system?",opts:["None","CF rating","None","ELO-based with contest performance adjustments"],ans:3,topic:"CP Meta"},
+      {q:"What is ICPC?",opts:["None","None","ICPC class","International Collegiate Programming Contest"],ans:3,topic:"CP Meta"},
+      {q:"What is IOI?",opts:["None","IOI class","None","International Olympiad in Informatics — high school"],ans:3,topic:"CP Meta"},
+      {q:"What is Atcoder?",opts:["None","Japanese CP platform with high quality problems","None","Atcoder class"],ans:1,topic:"Platforms"},
+      {q:"What is USACO?",opts:["USACO class","None","None","USA Computing Olympiad — 4 divisions"],ans:3,topic:"Platforms"},
+      {q:"What is Hackerrank?",opts:["CP and interview preparation platform","HR class","None","None"],ans:0,topic:"Platforms"},
+      {q:"What is a virtual contest?",opts:["None","None","Virtual class","Upsolving past contest as if live"],ans:3,topic:"CP Meta"},
+      {q:"What is upsolving?",opts:["Upsol class","None","Solving problems you couldn't during contest","None"],ans:2,topic:"CP Meta"},
+      {q:"What is editorial?",opts:["None","None","Editor class","Official solution explanation for contest problems"],ans:3,topic:"CP Meta"},
+      {q:"What is a hack in CF?",opts:["Submitting failing test case against opponent's code","None","None","CF hack"],ans:0,topic:"CP Meta"},
+      {q:"What is Heavy-Light Decomposition?",opts:["HLD class","None","None","Tree into chains for O(log²n) path queries"],ans:3,topic:"Advanced Trees"},
+      {q:"What is Centroid Decomposition?",opts:["None","None","Decompose at centroid for path problems O(n log n)","CD class"],ans:2,topic:"Advanced Trees"},
+      {q:"What is Persistent Segment Tree?",opts:["None","None","PST class","Version history — access any past version O(log n)"],ans:3,topic:"Advanced DS"},
+      {q:"What is a Treap for CP?",opts:["None","Randomized BST — split/merge in O(log n) expected","None","Treap class"],ans:1,topic:"Advanced DS"},
+      {q:"What is Li Chao tree?",opts:["LC tree","None","Segment tree for line minimization queries","None"],ans:2,topic:"Advanced DS"},
+      {q:"What is Convex Hull Trick?",opts:["None","Optimizes linear DP transitions using convex hull","None","CHT class"],ans:1,topic:"Advanced DP"},
+      {q:"What is D&C DP optimization?",opts:["None","DnC DP","None","Monotone opt reduces O(n²) DP to O(n log n)"],ans:3,topic:"Advanced DP"},
+      {q:"What is Knuth's optimization?",opts:["None","None","Knuth class","When opt(i,j) monotone — O(n²) from O(n³)"],ans:3,topic:"Advanced DP"},
+      {q:"What is SMAWK algorithm?",opts:["None","None","SMAWK class","O(n) optimization for totally monotone matrices"],ans:3,topic:"Advanced DP"},
+      {q:"What is aliens trick (Lagrangian relaxation)?",opts:["Aliens DP","None","Adds penalty to remove constraint on exactly k items","None"],ans:2,topic:"Advanced DP"},
+      {q:"What is online convex hull trick?",opts:["CHT for non-monotone queries using Li Chao tree","Online CHT","None","None"],ans:0,topic:"Advanced DP"},
+      {q:"What is matrix exponentiation?",opts:["None","Matrix power","Compute n-th Fibonacci or recurrence in O(k³ log n)","None"],ans:2,topic:"Math"},
+      {q:"What is fast Fourier transform (FFT)?",opts:["None","O(n log n) polynomial multiplication","None","FFT class"],ans:1,topic:"Math"},
+      {q:"What is NTT?",opts:["Number Theoretic Transform — FFT with modular arithmetic","None","NTT class","None"],ans:0,topic:"Math"},
+      {q:"What is XOR convolution?",opts:["None","None","Fast XOR of all subset sums using Walsh-Hadamard","XOR conv"],ans:2,topic:"Math"},
+      {q:"What is Sum over Subsets (SOS) DP?",opts:["SOS class","O(n * 2^n) DP for subset sum over all subsets","None","None"],ans:1,topic:"Math"},
+      {q:"What is Z algorithm for CP?",opts:["O(n) prefix matching array for pattern search","None","None","Z function"],ans:0,topic:"String Algorithms"},
+      {q:"What is suffix array construction?",opts:["None","Sort suffixes in O(n log n) with SA-IS or DC3","None","SA class"],ans:1,topic:"String Algorithms"},
+      {q:"What is LCP array?",opts:["None","LCP class","Longest Common Prefix between adjacent suffixes","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is suffix automaton?",opts:["None","SAM class","None","Compact DAG representing all substrings in O(n)"],ans:3,topic:"String Algorithms"},
+      {q:"What is Palindromic Tree (Eertree)?",opts:["Pal tree","None","Trie of all palindromic substrings","None"],ans:2,topic:"String Algorithms"},
+      {q:"What is Manacher's algorithm?",opts:["None","O(n) longest palindromic substring","Manacher class","None"],ans:1,topic:"String Algorithms"},
+      {q:"What is max flow in CP?",opts:["Flow class","None","Dinic's algorithm O(V²E) for max flow","None"],ans:2,topic:"Flows"},
+      {q:"What is min cost max flow?",opts:["None","None","MCMF class","Flow maximizing total cost — SPFA or SSP"],ans:3,topic:"Flows"},
+      {q:"What is bipartite matching in CP?",opts:["BM class","None","None","Hopcroft-Karp O(E√V) — faster than Hungarian"],ans:3,topic:"Flows"},
+      {q:"What is Hall's theorem?",opts:["None","None","Hall class","Bipartite perfect matching exists iff Hall condition holds"],ans:3,topic:"Flows"},
+      {q:"What is Dilworth's theorem?",opts:["None","Dilworth class","Min chains to cover = max antichain in poset","None"],ans:2,topic:"Flows"},
+      {q:"What is Sprague-Grundy for game theory?",opts:["XOR of Grundy values determines winner","None","SG class","None"],ans:0,topic:"Game Theory"},
+      {q:"What is Nim and Nim-sum?",opts:["None","Nim class","XOR of pile sizes determines winning position","None"],ans:2,topic:"Game Theory"},
+      {q:"What is Green Hackenbush?",opts:["None","None","Graph game with Grundy analysis","GH class"],ans:2,topic:"Game Theory"},
+      {q:"What is Codeforces rating system?",opts:["None","CF rating","None","ELO-based with contest performance adjustments"],ans:3,topic:"CP Meta"},
+      {q:"What is ICPC?",opts:["None","None","ICPC class","International Collegiate Programming Contest"],ans:3,topic:"CP Meta"},
+      {q:"What is IOI?",opts:["None","IOI class","None","International Olympiad in Informatics — high school"],ans:3,topic:"CP Meta"},
+      {q:"What is Atcoder?",opts:["None","Japanese CP platform with high quality problems","None","Atcoder class"],ans:1,topic:"Platforms"},
+      {q:"What is USACO?",opts:["USACO class","None","None","USA Computing Olympiad — 4 divisions"],ans:3,topic:"Platforms"},
+      {q:"What is Hackerrank?",opts:["CP and interview preparation platform","HR class","None","None"],ans:0,topic:"Platforms"},
+      {q:"What is a virtual contest?",opts:["None","None","Virtual class","Upsolving past contest as if live"],ans:3,topic:"CP Meta"},
+      {q:"What is upsolving?",opts:["Upsol class","None","Solving problems you couldn't during contest","None"],ans:2,topic:"CP Meta"},
+      {q:"What is editorial?",opts:["None","None","Editor class","Official solution explanation for contest problems"],ans:3,topic:"CP Meta"},
+      {q:"What is a hack in CF?",opts:["Submitting failing test case against opponent's code","None","None","CF hack"],ans:0,topic:"CP Meta"},
     ],
   },
 };
 
+function shuffleQ(rawQ){
+  // Step 1: grab all 4 options as objects {text, isCorrect}
+  const tagged = rawQ.opts.map((text,i)=>({text, isCorrect: i===rawQ.ans}));
+  // Step 2: Fisher-Yates shuffle the tagged array
+  for(let i=tagged.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [tagged[i],tagged[j]]=[tagged[j],tagged[i]];
+  }
+  // Step 3: rebuild opts array and find new correct index
+  const newOpts = tagged.map(t=>t.text);
+  const newAns  = tagged.findIndex(t=>t.isCorrect);
+  return {...rawQ, opts:newOpts, ans:newAns};
+}
+
+// Split array into chunks of n
+function chunkArr(arr,n){
+  const out=[];
+  for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n));
+  return out;
+}
+
+// Fisher-Yates shuffle — fully random array order
+function shuffleArr(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
 const LEVEL_INFO = {
-  basic:   {label:"Basic",     color:T.success, icon:"🟢", desc:"Fundamental concepts — start here"},
-  intermediate:{label:"Intermediate",color:T.amber,  icon:"🟡", desc:"Core skills — ready for interviews"},
-  advanced:{label:"Advanced",  color:T.pink,   icon:"🔴", desc:"Expert level — for pro competitions"},
+  basic:        {label:"Basic",        color:T.success, icon:"🟢", desc:"Fundamental concepts"},
+  intermediate: {label:"Intermediate", color:T.amber,   icon:"🟡", desc:"Core skills"},
+  advanced:     {label:"Advanced",     color:T.pink,    icon:"🔴", desc:"Expert level"},
 };
 
 // ================================================================
 //  QUIZ HELPER — Save attempt to Firestore
 // ================================================================
-async function saveQuizAttempt(uid, courseId, level, score, total, answers){
+async function saveQuizAttempt(uid,courseId,level,testNum,score,total,answers){
   try{
-    const attemptRef = collection(db, "quiz_attempts");
-    await addDoc(attemptRef, {
-      uid, courseId, level, score, total,
-      pct: Math.round((score/total)*100),
-      answers,
-      completedAt: serverTimestamp(),
+    await addDoc(collection(db,"quiz_attempts"),{
+      uid,courseId,level,testNum,score,total,
+      pct:Math.round((score/total)*100),
+      answers,completedAt:serverTimestamp(),
     });
-    // Also update best score in user progress
-    const progressRef = doc(db, "quiz_progress", uid);
-    const snap = await getDoc(progressRef);
-    const existing = snap.exists() ? snap.data() : {};
-    const key = `${courseId}_${level}`;
-    const prev = existing[key] || {best:0, attempts:0};
-    const newBest = Math.max(prev.best, Math.round((score/total)*100));
-    await setDoc(progressRef, {...existing, [key]:{best:newBest, attempts:(prev.attempts||0)+1, lastScore:Math.round((score/total)*100)}}, {merge:true});
+    const ref=doc(db,"quiz_progress",uid);
+    const snap=await getDoc(ref);
+    const ex=snap.exists()?snap.data():{};
+    const key=`${courseId}_${level}_t${testNum}`;
+    const prev=ex[key]||{best:0,attempts:0};
+    const newBest=Math.max(prev.best,Math.round((score/total)*100));
+    await setDoc(ref,{...ex,[key]:{best:newBest,attempts:(prev.attempts||0)+1,lastScore:Math.round((score/total)*100)}},{merge:true});
   }catch(e){}
 }
 
 // ================================================================
-//  QUIZ PAGE — Full pro version
+//  QUIZ PAGE
 // ================================================================
 function QuizPage({user,courses,setPage}){
-  const [view,setView]=useState("courses"); // courses | levels | quiz | results | history
+  const [view,setView]   =useState("courses"); // courses|quizDash|selectTest|quiz|results
   const [selCourse,setSelCourse]=useState(null);
-  const [selLevel,setSelLevel]=useState(null);
-  const [allQs,setAllQs]=useState([]);
-  const [qIdx,setQIdx]=useState(0);
-  const [selected,setSelected]=useState(null);
-  const [score,setScore]=useState(0);
-  const [answers,setAnswers]=useState([]);
-  const [loading,setLoading]=useState(false);
-  const [userProgress,setUserProgress]=useState({});
-  const [history,setHistory]=useState([]);
-  const [startTime,setStartTime]=useState(null);
-  const [elapsed,setElapsed]=useState(0);
-  const [timerRef,setTimerRef]=useState(null);
+  const [selLevel, setSelLevel] =useState(null);
+  const [selTest,  setSelTest]  =useState(null);  // 1-based test number
+  const [allQs,    setAllQs]    =useState([]);
+  const [qIdx,     setQIdx]     =useState(0);
+  const [selected, setSelected] =useState(null);
+  const [score,    setScore]    =useState(0);
+  const [answers,  setAnswers]  =useState([]);
+  const [loading,  setLoading]  =useState(false);
+  const [uProg,    setUProg]    =useState({});
+  const [elapsed,  setElapsed]  =useState(0);
+  const [timerRef, setTimerRef] =useState(null);
+  const [testMetas,setTestMetas]=useState([]); // custom test names from Firestore
 
-  // Load user quiz progress
   useEffect(()=>{
     if(!user)return;
-    const unsub=onSnapshot(doc(db,"quiz_progress",user.uid),snap=>{
-      if(snap.exists())setUserProgress(snap.data());
-    },()=>{});
+    const unsub=onSnapshot(doc(db,"quiz_progress",user.uid),
+      snap=>{if(snap.exists())setUProg(snap.data());},()=>{});
     return unsub;
   },[user?.uid]);
 
-  async function selectLevel(course, level){
+  // ── start a specific test ──
+  async function startTest(course,level,testNum){
     if(!user){setPage("login");return;}
     setLoading(true);
-    const staticQs=(STATIC_QUIZ[course.id]||{})[level]||[];
+    const staticPool=(STATIC_QUIZ[course.id]||{})[level]||[];
+    const chunks=chunkArr(staticPool,20);
+    const chunk=chunks[(testNum-1)%chunks.length]||staticPool;
     try{
       const snap=await getDocs(query(collection(db,"quiz_questions"),
         where("courseId","==",course.id),where("level","==",level)));
-      const adminQs=snap.docs.map(d=>d.data());
-      const combined=[...staticQs,...adminQs];
-      // Shuffle questions
-      const shuffled=[...combined].sort(()=>Math.random()-0.5);
-      setAllQs(shuffled);
-    }catch{setAllQs([...staticQs].sort(()=>Math.random()-0.5));}
-    setSelCourse(course);setSelLevel(level);
-    setQIdx(0);setSelected(null);setScore(0);setAnswers([]);
-    setStartTime(Date.now());setElapsed(0);
+      // Only include admin questions assigned to THIS testNum
+      const adminQs=snap.docs.map(d=>d.data()).filter(q=>
+        !q.testNum || q.testNum===testNum
+      );
+      // 1. Shuffle question ORDER (Fisher-Yates)
+      // 2. Shuffle each question's OPTIONS (shuffleQ)
+      const combined=shuffleArr([...chunk,...adminQs]).map(shuffleQ);
+      setAllQs(combined);
+    }catch{
+      setAllQs(shuffleArr(chunk).map(shuffleQ));
+    }
+    setSelCourse(course);setSelLevel(level);setSelTest(testNum);
+    setQIdx(0);setSelected(null);setScore(0);setAnswers([]);setElapsed(0);
     setView("quiz");setLoading(false);
-    // Start timer
-    const interval=setInterval(()=>setElapsed(e=>e+1),1000);
-    setTimerRef(interval);
+    const iv=setInterval(()=>setElapsed(e=>e+1),1000);
+    setTimerRef(iv);
   }
 
   function pick(i){
     if(selected!==null)return;
     setSelected(i);
-    const isCorrect=allQs[qIdx].ans===i;
-    if(isCorrect)setScore(s=>s+1);
-    setAnswers(a=>[...a,{
-      q:allQs[qIdx].q,opts:allQs[qIdx].opts,
-      selected:i,correct:allQs[qIdx].ans,
-      isCorrect,topic:allQs[qIdx].topic||""
-    }]);
+    const ok=allQs[qIdx].ans===i;
+    if(ok)setScore(s=>s+1);
+    setAnswers(a=>[...a,{q:allQs[qIdx].q,opts:allQs[qIdx].opts,selected:i,correct:allQs[qIdx].ans,isCorrect:ok,topic:allQs[qIdx].topic||""}]);
   }
 
   function next(){
     if(qIdx+1>=allQs.length){
       clearInterval(timerRef);
-      const finalScore=score+(selected!==null&&allQs[qIdx].ans===selected?0:0);
-      if(user)saveQuizAttempt(user.uid,selCourse.id,selLevel,score,allQs.length,answers);
+      if(user)saveQuizAttempt(user.uid,selCourse.id,selLevel,selTest,score,allQs.length,answers);
       setView("results");
     }else{setQIdx(i=>i+1);setSelected(null);}
   }
 
   function reset(){
     clearInterval(timerRef);
-    setView("courses");setSelCourse(null);setSelLevel(null);
+    setView("courses");setSelCourse(null);setSelLevel(null);setSelTest(null);
     setAllQs([]);setQIdx(0);setSelected(null);setScore(0);setAnswers([]);setElapsed(0);
   }
 
   const pct=allQs.length>0?Math.round((score/allQs.length)*100):0;
-  const grade=pct>=90?"🏆 Perfect!":pct>=75?"🥇 Excellent!":pct>=60?"✅ Good Work!":pct>=40?"📚 Keep Practicing!":"💪 Don't Give Up!";
+  const grade=pct>=90?"🏆 Perfect!":pct>=75?"🥇 Excellent!":pct>=60?"✅ Good Work!":pct>=40?"📚 Keep Practicing":"💪 Don't Give Up!";
   const gradeColor=pct>=75?T.success:pct>=60?T.accent:pct>=40?T.amber:T.pink;
   const fmtTime=s=>`${Math.floor(s/60).toString().padStart(2,"0")}:${(s%60).toString().padStart(2,"0")}`;
+
+  // Fetch custom test names when selCourse+selLevel changes
+  useEffect(()=>{
+    if(!selCourse||!selLevel)return;
+    const unsub=onSnapshot(
+      query(collection(db,"quiz_tests"),
+        where("courseId","==",selCourse.id),where("level","==",selLevel)),
+      snap=>setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
+    return unsub;
+  },[selCourse?.id, selLevel]);
+
+  // Helper: get display name for a test
+  function getTestName(testNum){
+    const meta=testMetas.find(m=>m.testNum===testNum);
+    return meta?.name||`Test ${testNum}`;
+  }
+
+  // ── QUIZ DASHBOARD ──
+  if(view==="quizDash") return(
+    <div className="page" style={{maxWidth:980,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:"clamp(20px,3vw,32px)"}}>
+        <button onClick={()=>setView("courses")} style={{background:"none",border:"none",
+          color:T.muted2,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:6,padding:0}}>
+          ← Back to Quiz
+        </button>
+      </div>
+      <div className="afu" style={{marginBottom:"clamp(20px,3vw,32px)"}}>
+        <div className="stag">Overview</div>
+        <h1 style={{fontWeight:800,fontSize:"clamp(22px,4vw,38px)",letterSpacing:"-1.5px",marginBottom:8}}>
+          Quiz <span className="gt2">Dashboard</span>
+        </h1>
+        <p style={{color:T.muted2,fontSize:"clamp(12px,1.5vw,14px)",lineHeight:1.7,maxWidth:520}}>
+          Your progress across all courses and difficulty levels.
+        </p>
+      </div>
+
+      {/* ── Overall Stats Bar ── */}
+      {(()=>{
+        let totalTests=0,donePct=0,totalBest=0,attempted=0;
+        courses.forEach(c=>{
+          ["basic","intermediate","advanced"].forEach(lv=>{
+            const pool=(STATIC_QUIZ[c.id]||{})[lv]||[];
+            const tests=chunkArr(pool,20);
+            tests.forEach((_,ti)=>{
+              totalTests++;
+              const p=uProg[`${c.id}_${lv}_t${ti+1}`];
+              if(p){attempted++;totalBest+=p.best||0;}
+            });
+          });
+        });
+        const overallPct=attempted>0?Math.round(totalBest/attempted):0;
+        return(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:28}}>
+            {[
+              {label:"Tests Attempted",val:attempted,icon:"📝",color:T.blue},
+              {label:"Tests Remaining",val:totalTests-attempted,icon:"🎯",color:T.amber},
+              {label:"Avg Best Score",val:attempted>0?`${overallPct}%`:"—",icon:"🏆",color:T.success},
+            ].map(s=>(
+              <div key={s.label} className="card" style={{padding:"clamp(14px,2vw,20px)",textAlign:"center",borderTop:`3px solid ${s.color}`}}>
+                <div style={{fontSize:"clamp(22px,3vw,32px)",marginBottom:6}}>{s.icon}</div>
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,
+                  fontSize:"clamp(18px,2.5vw,26px)",color:s.color}}>{s.val}</div>
+                <div style={{fontSize:11,color:T.muted,marginTop:4}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* ── Per-Course Progress Cards ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(100%,460px),1fr))",gap:"clamp(14px,2vw,20px)"}}>
+        {courses.map((c,ci)=>{
+          const levels=["basic","intermediate","advanced"];
+          return(
+            <div key={c.id} className="card afu"
+              style={{padding:"clamp(16px,2.5vw,22px)",borderTop:`3px solid ${c.color}`,
+                animation:`fadeUp .4s ease ${ci*.07}s both`}}>
+              {/* Course header */}
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                <span style={{fontSize:"clamp(26px,4vw,34px)"}}>{c.icon}</span>
+                <div>
+                  <div style={{fontWeight:800,fontSize:"clamp(14px,1.8vw,16px)"}}>{c.title}</div>
+                  <div style={{fontSize:10,color:c.color,fontFamily:"'JetBrains Mono',monospace",
+                    letterSpacing:2,textTransform:"uppercase"}}>{c.category}</div>
+                </div>
+              </div>
+
+              {/* Level rows */}
+              {levels.map(lv=>{
+                const li=LEVEL_INFO[lv];
+                const pool=(STATIC_QUIZ[c.id]||{})[lv]||[];
+                const tests=chunkArr(pool,20);
+                const results=tests.map((_,ti)=>uProg[`${c.id}_${lv}_t${ti+1}`]||null);
+                const done=results.filter(Boolean).length;
+                const bests=results.filter(Boolean).map(p=>p.best||0);
+                const avgBest=bests.length>0?Math.round(bests.reduce((a,b)=>a+b,0)/bests.length):null;
+                const levelPct=Math.round((done/tests.length)*100);
+
+                return(
+                  <div key={lv} style={{marginBottom:14}}>
+                    {/* Level label + stats */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:12}}>{li.icon}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:li.color}}>{li.label}</span>
+                      </div>
+                      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                        {avgBest!==null&&(
+                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,
+                            color:avgBest>=75?T.success:avgBest>=50?T.amber:T.pink,fontWeight:700}}>
+                            avg {avgBest}%
+                          </span>
+                        )}
+                        <span style={{fontSize:11,color:T.muted}}>{done}/{tests.length} done</span>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:5,background:T.border,borderRadius:99,marginBottom:8}}>
+                      <div style={{height:"100%",width:`${levelPct}%`,borderRadius:99,
+                        background:li.color,transition:"width .8s ease"}}/>
+                    </div>
+                    {/* Mini test chips */}
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      {tests.map((_,ti)=>{
+                        const p=uProg[`${c.id}_${lv}_t${ti+1}`];
+                        const b=p?.best;
+                        const bg=b!=null?(b>=75?`${T.success}22`:b>=50?`${T.amber}22`:`${T.pink}22`):T.bg3;
+                        const col=b!=null?(b>=75?T.success:b>=50?T.amber:T.pink):T.muted;
+                        const border=b!=null?(b>=75?T.success:b>=50?T.amber:T.pink):T.border2;
+                        return(
+                          <button key={ti} onClick={()=>startTest(c,lv,ti+1)}
+                            title={b!=null?`Best: ${b}% · ${p.attempts} attempt${p.attempts>1?"s":""}`:"Not attempted"}
+                            style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${border}`,
+                              background:bg,color:col,fontSize:10,fontWeight:700,cursor:"pointer",
+                              fontFamily:"'JetBrains Mono',monospace",transition:"all .15s",minWidth:36,textAlign:"center"}}
+                            onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.1)";}}
+                            onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
+                            {b!=null?`${b}%`:`T${ti+1}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Start button */}
+              <button className="btn-p" onClick={()=>{setSelCourse(c);setSelLevel("basic");setView("selectTest");}}
+                style={{width:"100%",marginTop:8,padding:"10px",fontSize:13}}>
+                Practice {c.title} →
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   // ── COURSE SELECTION ──
   if(view==="courses") return(
     <div className="page" style={{maxWidth:980,margin:"0 auto"}}>
       <div className="afu" style={{marginBottom:"clamp(20px,3vw,32px)"}}>
-        <div className="stag">Practice</div>
-        <h1 style={{fontWeight:800,fontSize:"clamp(26px,4vw,42px)",letterSpacing:"-1.5px",marginBottom:8}}>
-          Quiz & <span className="gt2">Practice Tests</span>
-        </h1>
-        <p style={{color:T.muted2,fontSize:"clamp(13px,1.5vw,15px)",lineHeight:1.7,maxWidth:560}}>
-          {user?"Choose a course to test your knowledge — 3 difficulty levels, instant feedback, progress saved! 🎯"
-            :"Browse quizzes below. Login to attempt and save your progress."}
-        </p>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+          <div>
+            <div className="stag">Practice</div>
+            <h1 style={{fontWeight:800,fontSize:"clamp(26px,4vw,42px)",letterSpacing:"-1.5px",marginBottom:8}}>
+              Quiz & <span className="gt2">Practice Tests</span>
+            </h1>
+            <p style={{color:T.muted2,fontSize:"clamp(13px,1.5vw,15px)",lineHeight:1.7,maxWidth:540}}>
+              {user?"3 difficulty levels · Multiple tests per level · Progress saved 🎯":"Browse below — login to attempt and save your score."}
+            </p>
+          </div>
+          {user&&(
+            <button onClick={()=>setView("quizDash")}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"10px 18px",
+                borderRadius:10,border:`1px solid ${T.accent}44`,background:`${T.accent}10`,
+                color:T.accent,fontWeight:700,fontSize:13,cursor:"pointer",
+                transition:"all .2s",flexShrink:0,alignSelf:"flex-start",marginTop:4}}
+              onMouseEnter={e=>{e.currentTarget.style.background=`${T.accent}20`;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=`${T.accent}10`;}}>
+              📊 My Dashboard
+            </button>
+          )}
+        </div>
       </div>
       {!user&&(
         <div style={{background:`linear-gradient(135deg,${T.accent}10,${T.blue}08)`,
@@ -2980,50 +6414,45 @@ function QuizPage({user,courses,setPage}){
             <div style={{fontWeight:700,fontSize:"clamp(13px,1.8vw,15px)",marginBottom:3}}>Login to Attempt Quizzes</div>
             <div style={{fontSize:13,color:T.muted2}}>Progress saved, scores tracked, compete on leaderboard.</div>
           </div>
-          <button className="btn-p" onClick={()=>setPage("login")} style={{flexShrink:0,padding:"10px 22px",fontSize:13}}>Login Now →</button>
+          <button className="btn-p" onClick={()=>setPage("login")} style={{flexShrink:0,padding:"10px 22px",fontSize:13}}>Login →</button>
         </div>
       )}
-      <div className="grid-auto">
+      <div className="quiz-course-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"clamp(12px,2vw,18px)"}}>
         {courses.map((c,i)=>{
           const levels=["basic","intermediate","advanced"];
           return(
             <div key={c.id} className="card"
               style={{padding:"clamp(16px,2.5vw,22px)",borderTop:`3px solid ${c.color}`,
-                animation:`fadeUp .4s ease ${i*.07}s both`,display:"flex",flexDirection:"column",gap:12}}>
+                animation:`fadeUp .4s ease ${i*.07}s both`,display:"flex",flexDirection:"column",gap:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <span style={{fontSize:"clamp(26px,4vw,34px)"}}>{c.icon}</span>
-                <span className="badge" style={{background:`${c.color}15`,color:c.color,border:`1px solid ${c.color}33`,fontSize:10}}>
-                  {levels.reduce((a,l)=>(STATIC_QUIZ[c.id]?.[l]||[]).length+a,0)}+ Qs
-                </span>
+                <span style={{fontSize:"clamp(26px,4vw,32px)"}}>{c.icon}</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:c.color,
+                  letterSpacing:2,textTransform:"uppercase"}}>{c.category}</span>
               </div>
-              <div>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:c.color,letterSpacing:2,marginBottom:5,textTransform:"uppercase"}}>{c.category}</div>
-                <div style={{fontWeight:800,fontSize:"clamp(13px,1.7vw,15px)",lineHeight:1.3,marginBottom:4}}>{c.title}</div>
-              </div>
-              {/* Level buttons */}
+              <div style={{fontWeight:800,fontSize:"clamp(13px,1.7vw,15px)",lineHeight:1.3}}>{c.title}</div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {levels.map(lv=>{
                   const li=LEVEL_INFO[lv];
-                  const key=`${c.id}_${lv}`;
-                  const prog=userProgress[key];
+                  const pool=(STATIC_QUIZ[c.id]||{})[lv]||[];
+                  const tests=chunkArr(pool,20);
+                  const anyBest=tests.some((_,ti)=>uProg[`${c.id}_${lv}_t${ti+1}`]);
                   return(
-                    <button key={lv}
-                      onClick={()=>user?setView("levels")||setSelCourse(c)||setSelLevel(lv)||selectLevel(c,lv):setPage("login")}
-                      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+                    <button key={lv} onClick={()=>{
+                        if(!user){setPage("login");return;}
+                        setSelCourse(c);setSelLevel(lv);setView("selectTest");
+                      }}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",
                         borderRadius:9,border:`1px solid ${T.border2}`,
                         background:T.bg3,cursor:"pointer",transition:"all .2s",textAlign:"left",width:"100%"}}
                       onMouseEnter={e=>{e.currentTarget.style.borderColor=li.color;e.currentTarget.style.background=`${li.color}08`;}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border2;e.currentTarget.style.background=T.bg3;}}>
-                      <span style={{fontSize:14,flexShrink:0}}>{li.icon}</span>
+                      <span style={{fontSize:12}}>{li.icon}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:12,color:li.color}}>{li.label}</div>
-                        <div style={{fontSize:10,color:T.muted,fontFamily:"'JetBrains Mono',monospace"}}>{(STATIC_QUIZ[c.id]?.[lv]||[]).length} questions</div>
+                        <div style={{fontWeight:700,fontSize:11,color:li.color}}>{li.label}</div>
+                        <div style={{fontSize:10,color:T.muted}}>{tests.length} test{tests.length!==1?"s":""} · {pool.length} Qs</div>
                       </div>
-                      {prog&&<div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:prog.best>=75?T.success:prog.best>=50?T.amber:T.pink,fontWeight:700}}>{prog.best}%</div>
-                        <div style={{fontSize:9,color:T.muted}}>best</div>
-                      </div>}
-                      <span style={{color:T.muted,fontSize:12,flexShrink:0}}>→</span>
+                      {anyBest&&<span style={{fontSize:10,color:T.success}}>✓</span>}
+                      <span style={{color:T.muted,fontSize:11}}>→</span>
                     </button>
                   );
                 })}
@@ -3036,43 +6465,127 @@ function QuizPage({user,courses,setPage}){
     </div>
   );
 
+  // ── TEST SELECTION ──
+  if(view==="selectTest"){
+    const li=LEVEL_INFO[selLevel];
+    const pool=(STATIC_QUIZ[selCourse.id]||{})[selLevel]||[];
+    const staticTests=chunkArr(pool,20);
+    // Custom tests from Firestore with testNum > staticTests.length
+    const customTestNums=[...new Set(testMetas.filter(m=>m.testNum>staticTests.length).map(m=>m.testNum))].sort((a,b)=>a-b);
+    const allTestNums=[...staticTests.map((_,i)=>i+1), ...customTestNums];
+    return(
+      <div className="page" style={{maxWidth:600,margin:"0 auto"}}>
+        <button className="btn-g" onClick={()=>setView("courses")} style={{marginBottom:20}}>← Back</button>
+        <div className="afu">
+          <div style={{fontWeight:800,fontSize:"clamp(20px,3vw,28px)",marginBottom:4}}>
+            {selCourse.icon} {selCourse.title}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:24,flexWrap:"wrap"}}>
+            <span className="badge" style={{background:`${li.color}15`,color:li.color,border:`1px solid ${li.color}33`,fontSize:11}}>{li.icon} {li.label}</span>
+            <span style={{fontSize:12,color:T.muted}}>{allTestNums.length} tests available — choose karo</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {allTestNums.map(testNum=>{
+              const isStatic=testNum<=staticTests.length;
+              const staticQs=isStatic?staticTests[testNum-1]:[];
+              const testName=getTestName(testNum);
+              const key=`${selCourse.id}_${selLevel}_t${testNum}`;
+              const prog=uProg[key];
+              const topics=isStatic?[...new Set(staticQs.map(q=>q.topic).filter(Boolean))]:[];
+              return(
+                <div key={testNum} className="card" style={{padding:"clamp(16px,3vw,22px)",
+                  borderLeft:`3px solid ${prog?.best>=75?T.success:prog?T.amber:li.color}33`,
+                  transition:"all .2s",cursor:"pointer"}}
+                  onClick={()=>startTest(selCourse,selLevel,testNum)}
+                  onMouseEnter={e=>e.currentTarget.style.borderLeftColor=li.color}
+                  onMouseLeave={e=>e.currentTarget.style.borderLeftColor=prog?.best>=75?T.success:prog?T.amber:`${li.color}33`}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                    <div style={{width:44,height:44,borderRadius:12,
+                      background:prog?.best>=75?`${T.success}15`:prog?`${T.amber}15`:`${li.color}10`,
+                      border:`1.5px solid ${prog?.best>=75?T.success:prog?T.amber:li.color}33`,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:14,
+                      color:prog?.best>=75?T.success:prog?T.amber:li.color,flexShrink:0}}>
+                      {testNum}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
+                        <span style={{fontWeight:800,fontSize:"clamp(13px,1.8vw,15px)"}}>{testName}</span>
+                        {!isStatic&&<span style={{fontSize:10,color:T.accent,background:`${T.accent}10`,
+                          border:`1px solid ${T.accent}22`,borderRadius:4,padding:"1px 6px",
+                          fontFamily:"'JetBrains Mono',monospace"}}>custom</span>}
+                        {prog&&<span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,
+                          color:prog.best>=75?T.success:T.amber}}>
+                          Best: {prog.best}% · {prog.attempts} attempt{prog.attempts!==1?"s":""}
+                        </span>}
+                      </div>
+                      <div style={{fontSize:11,color:T.muted}}>
+                        {isStatic?`${staticQs.length} static questions`:`Custom test`}
+                        {topics.length>0&&<span> · {topics.slice(0,3).join(", ")}{topics.length>3?`+${topics.length-3}`:""}</span>}
+                      </div>
+                    </div>
+                    {prog?.best>=75
+                      ?<span style={{fontSize:18,flexShrink:0}}>✅</span>
+                      :prog
+                        ?<span style={{fontSize:18,flexShrink:0}}>🔄</span>
+                        :<span style={{fontSize:13,color:T.muted,flexShrink:0}}>Start →</span>}
+                  </div>
+                  {prog&&(
+                    <div style={{marginTop:12,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${prog.best}%`,borderRadius:99,
+                        background:prog.best>=75?T.success:T.amber,transition:"width .6s"}}/>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── QUIZ IN PROGRESS ──
   if(view==="quiz"){
     const q=allQs[qIdx];
     if(!q)return null;
     const li=LEVEL_INFO[selLevel];
     return(
-      <div className="page" style={{maxWidth:700,margin:"0 auto"}}>
-        {/* Header row */}
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+      <div className="page" style={{maxWidth:680,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18,flexWrap:"wrap"}}>
           <button className="btn-g" onClick={reset} style={{padding:"6px 12px",color:T.muted2,flexShrink:0}}>✕ Quit</button>
-          <span style={{fontWeight:700,fontSize:"clamp(12px,1.6vw,14px)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <span style={{fontWeight:700,fontSize:"clamp(12px,1.6vw,14px)",flex:1,minWidth:0,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {selCourse.icon} {selCourse.title}
           </span>
-          <span className="badge" style={{background:`${li.color}15`,color:li.color,border:`1px solid ${li.color}33`,flexShrink:0}}>{li.icon} {li.label}</span>
-          {/* Timer */}
-          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:T.muted2,flexShrink:0}}>⏱ {fmtTime(elapsed)}</span>
+          <span className="badge" style={{background:`${li.color}15`,color:li.color,
+            border:`1px solid ${li.color}33`,flexShrink:0,fontSize:10}}>
+            {li.icon} {li.label} · Test {selTest}
+          </span>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:T.muted2,flexShrink:0}}>
+            ⏱ {fmtTime(elapsed)}
+          </span>
         </div>
-
-        {/* Progress bar */}
         <div style={{height:5,background:T.border,borderRadius:99,marginBottom:6,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${((qIdx)/allQs.length)*100}%`,
+          <div style={{height:"100%",width:`${(qIdx/allQs.length)*100}%`,
             background:`linear-gradient(90deg,${li.color},${T.blue})`,
             borderRadius:99,transition:"width .5s ease"}}/>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:4}}>
-          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.muted}}>{qIdx+1} / {allQs.length}</span>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:T.muted}}>
+            {qIdx+1} / {allQs.length}
+          </span>
           <div style={{display:"flex",gap:12}}>
             <span style={{fontSize:11,color:T.success,fontWeight:600}}>✅ {score}</span>
             <span style={{fontSize:11,color:T.danger,fontWeight:600}}>❌ {qIdx-score}</span>
           </div>
         </div>
-
         <div className="card afu" style={{padding:"clamp(18px,3.5vw,32px)"}}>
-          {q.topic&&<div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:li.color,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>{q.topic}</div>}
-          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.muted,marginBottom:10,letterSpacing:1}}>Q{qIdx+1}</div>
+          {q.topic&&<div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,
+            color:li.color,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>{q.topic}</div>}
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.muted,
+            marginBottom:10,letterSpacing:1}}>Question {qIdx+1}</div>
           <h3 style={{fontWeight:700,fontSize:"clamp(14px,2vw,17px)",lineHeight:1.65,marginBottom:22,color:T.text}}>{q.q}</h3>
-
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {q.opts.map((opt,i)=>{
               let bg=T.bg3,border=`1.5px solid ${T.border2}`,color=T.text,icon=null;
@@ -3101,7 +6614,6 @@ function QuizPage({user,courses,setPage}){
               );
             })}
           </div>
-
           {selected!==null&&(
             <button className="btn-p" onClick={next}
               style={{width:"100%",marginTop:18,padding:"clamp(12px,2vw,15px)",
@@ -3114,10 +6626,9 @@ function QuizPage({user,courses,setPage}){
     );
   }
 
-  // ── RESULTS / DASHBOARD ──
+  // ── RESULTS ──
   if(view==="results"){
     const li=LEVEL_INFO[selLevel];
-    const timeTaken=elapsed;
     const topicBreakdown={};
     answers.forEach(a=>{
       const t=a.topic||"General";
@@ -3127,29 +6638,28 @@ function QuizPage({user,courses,setPage}){
     });
     return(
       <div className="page" style={{maxWidth:700,margin:"0 auto"}}>
-        {/* Result Card */}
-        <div className="card afu" style={{padding:"clamp(22px,4vw,40px)",marginBottom:18,
-          background:`linear-gradient(135deg,${gradeColor}06,${T.card})`}}>
+        <div className="card afu" style={{padding:"clamp(22px,4vw,40px)",marginBottom:18}}>
           <div style={{textAlign:"center",marginBottom:24}}>
             <div style={{fontSize:"clamp(42px,8vw,64px)",marginBottom:10}}>{pct>=75?"🏆":pct>=60?"🎯":"💪"}</div>
-            <h2 style={{fontWeight:800,fontSize:"clamp(18px,3vw,28px)",color:gradeColor,marginBottom:6}}>{grade}</h2>
-            <p style={{fontSize:13,color:T.muted2,marginBottom:16}}>{selCourse.title} · {li.icon} {li.label} Level</p>
-            <ProgressRing pct={pct} size={100} stroke={8} color={gradeColor}/>
+            <h2 style={{fontWeight:800,fontSize:"clamp(18px,3vw,28px)",color:gradeColor,marginBottom:4}}>{grade}</h2>
+            <p style={{fontSize:12,color:T.muted2,marginBottom:16}}>
+              {selCourse.title} · {li.icon} {li.label} · Test {selTest}
+            </p>
+            <ProgressRing pct={pct} size={96} stroke={8} color={gradeColor}/>
             <div style={{display:"flex",justifyContent:"center",gap:"clamp(16px,4vw,32px)",marginTop:18,flexWrap:"wrap"}}>
               {[
                 {label:"Score",val:`${score}/${allQs.length}`,color:gradeColor},
                 {label:"Accuracy",val:`${pct}%`,color:pct>=60?T.success:T.amber},
-                {label:"Time",val:fmtTime(timeTaken),color:T.blue},
+                {label:"Time",val:fmtTime(elapsed),color:T.blue},
               ].map(s=>(
                 <div key={s.label} style={{textAlign:"center"}}>
-                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:"clamp(16px,2.5vw,22px)",color:s.color}}>{s.val}</div>
-                  <div style={{fontSize:10,color:T.muted,marginTop:2,letterSpacing:1}}>{s.label}</div>
+                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,
+                    fontSize:"clamp(16px,2.5vw,22px)",color:s.color}}>{s.val}</div>
+                  <div style={{fontSize:10,color:T.muted,marginTop:2}}>{s.label}</div>
                 </div>
               ))}
             </div>
           </div>
-
-          {/* Topic breakdown */}
           {Object.keys(topicBreakdown).length>1&&(
             <div style={{marginBottom:20}}>
               <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:T.muted2}}>📊 Topic Breakdown</div>
@@ -3159,12 +6669,12 @@ function QuizPage({user,courses,setPage}){
                   return(
                     <div key={topic}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:11,color:T.muted2,fontFamily:"'JetBrains Mono',monospace"}}>{topic}</span>
+                        <span style={{fontSize:11,color:T.muted2}}>{topic}</span>
                         <span style={{fontSize:11,fontWeight:700,color:tp>=75?T.success:tp>=50?T.amber:T.pink}}>{correct}/{total}</span>
                       </div>
                       <div style={{height:4,background:T.border,borderRadius:99}}>
-                        <div style={{height:"100%",width:`${tp}%`,borderRadius:99,transition:"width .6s",
-                          background:tp>=75?T.success:tp>=50?T.amber:T.pink}}/>
+                        <div style={{height:"100%",width:`${tp}%`,borderRadius:99,
+                          background:tp>=75?T.success:tp>=50?T.amber:T.pink,transition:"width .6s"}}/>
                       </div>
                     </div>
                   );
@@ -3172,27 +6682,21 @@ function QuizPage({user,courses,setPage}){
               </div>
             </div>
           )}
-
-          {/* Action buttons */}
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center",marginBottom:16}}>
-            <button className="btn-p" onClick={()=>selectLevel(selCourse,selLevel)}>Retry {li.icon}</button>
-            <button className="btn-s" onClick={reset}>All Courses</button>
-            <button className="btn-s" onClick={()=>setPage("leaderboard")} style={{fontSize:13}}>🏆 Leaderboard</button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginBottom:12}}>
+            <button className="btn-p" onClick={()=>startTest(selCourse,selLevel,selTest)}>Retry Test {selTest} 🔄</button>
+            <button className="btn-s" onClick={()=>setView("selectTest")} style={{fontSize:13}}>Other Tests</button>
+            <button className="btn-s" onClick={reset} style={{fontSize:13}}>All Courses</button>
           </div>
-
-          {/* Go to Dashboard */}
-          <button onClick={()=>setPage("dashboard")}
+          <button onClick={()=>setView("quizDash")}
             style={{width:"100%",padding:"12px",background:`${T.accent}12`,
               border:`1px solid ${T.accent}33`,borderRadius:10,cursor:"pointer",
               color:T.accent,fontWeight:700,fontSize:13,transition:"all .2s"}}
             onMouseEnter={e=>e.currentTarget.style.background=`${T.accent}20`}
             onMouseLeave={e=>e.currentTarget.style.background=`${T.accent}12`}>
-            📊 Go to Dashboard
+            📊 View Quiz Dashboard
           </button>
         </div>
-
-        {/* Answer Review */}
-        <div style={{fontWeight:700,fontSize:"clamp(14px,1.8vw,16px)",marginBottom:12}}>📋 Full Review</div>
+        <div style={{fontWeight:700,fontSize:"clamp(14px,1.8vw,16px)",marginBottom:12}}>📋 Answer Review</div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {answers.map((a,i)=>(
             <div key={i} style={{borderRadius:10,overflow:"hidden",
@@ -3202,14 +6706,13 @@ function QuizPage({user,courses,setPage}){
                 display:"flex",alignItems:"flex-start",gap:10}}>
                 <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{a.isCorrect?"✅":"❌"}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  {a.topic&&<div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:T.muted,letterSpacing:1.5,marginBottom:3}}>{a.topic}</div>}
+                  {a.topic&&<div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,
+                    color:T.muted,letterSpacing:1.5,marginBottom:3}}>{a.topic}</div>}
                   <div style={{fontSize:"clamp(12px,1.5vw,13px)",fontWeight:600,lineHeight:1.5}}>{a.q}</div>
-                  {!a.isCorrect&&<div style={{fontSize:11,color:T.success,marginTop:4,fontWeight:600}}>
-                    ✓ Correct: {a.opts[a.correct]}
-                  </div>}
-                  {!a.isCorrect&&<div style={{fontSize:11,color:T.danger,marginTop:2}}>
-                    ✗ You chose: {a.opts[a.selected]}
-                  </div>}
+                  {!a.isCorrect&&<>
+                    <div style={{fontSize:11,color:T.success,marginTop:4,fontWeight:600}}>✓ {a.opts[a.correct]}</div>
+                    <div style={{fontSize:11,color:T.danger,marginTop:2}}>✗ {a.opts[a.selected]}</div>
+                  </>}
                 </div>
               </div>
             </div>
@@ -3222,64 +6725,200 @@ function QuizPage({user,courses,setPage}){
 }
 
 // ================================================================
-//  ADMIN QUIZ TAB — Add questions per course + level
+//  ADMIN QUIZ TAB — Full test + question management
+//  Firestore collections:
+//    quiz_tests/{id}      → {courseId, level, testNum, name, createdAt}
+//    quiz_questions/{id}  → {courseId, level, testNum, q, opts, ans, topic, createdAt}
 // ================================================================
 function AdminQuizTab({courses}){
-  const [selC,setSelC]=useState(courses[0]?.id||"c1");
-  const [selLv,setSelLv]=useState("basic");
-  const [questions,setQuestions]=useState([]);
-  const [form,setForm]=useState({q:"",opts:["","","",""],ans:0,topic:"",level:"basic"});
-  const [show,setShow]=useState(false);
-  const [load,setLoad]=useState(false);
-  const [toast,setToast]=useState("");
-  const msg=t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
-  const levels=["basic","intermediate","advanced"];
+  const [selC,  setSelC]  = useState(courses[0]?.id||"c1");
+  const [selLv, setSelLv] = useState("basic");
+  // test meta from Firestore
+  const [testMetas, setTestMetas] = useState([]); // [{id,testNum,name}]
+  // questions
+  const [questions, setQuestions] = useState([]);
+  // active test filter for question list
+  const [viewTest, setViewTest] = useState(null); // null = all
+  // forms
+  const [qForm,  setQForm]  = useState({q:"",opts:["","","",""],ans:0,topic:"",testNum:1});
+  const [qEditId,setQEditId]= useState(null);
+  const [showQForm, setShowQForm] = useState(false);
+  // test name editing
+  const [editingTestId, setEditingTestId] = useState(null);
+  const [editingTestName, setEditingTestName] = useState("");
+  // new test
+  const [showNewTest, setShowNewTest] = useState(false);
+  const [newTestName, setNewTestName] = useState("");
+  const [load, setLoad] = useState(false);
+  const [toast, setToast] = useState("");
+  const msg = t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
+  const levels = ["basic","intermediate","advanced"];
+
+  const staticPool  = (STATIC_QUIZ[selC]||{})[selLv]||[];
+  const staticChunks = chunkArr(staticPool,10);
+  const li = LEVEL_INFO[selLv];
+
+  // All tests = static chunks + Firestore custom tests
+  // Static tests: testNum 1..N  (numbered from staticChunks)
+  // Custom tests: testNum > staticChunks.length, stored in quiz_tests
 
   useEffect(()=>{
     const unsub=onSnapshot(
-      query(collection(db,"quiz_questions"),where("courseId","==",selC),where("level","==",selLv)),
-      snap=>setQuestions(snap.docs.map(d=>({id:d.id,...d.data()}))),
-      ()=>{}
-    );
+      query(collection(db,"quiz_tests"),
+        where("courseId","==",selC),where("level","==",selLv)),
+      snap=>setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
     return unsub;
   },[selC,selLv]);
 
-  async function addQ(){
-    if(!form.q.trim()||form.opts.some(o=>!o.trim())){msg("❌ Question and all 4 options are required.");return;}
+  useEffect(()=>{
+    const unsub=onSnapshot(
+      query(collection(db,"quiz_questions"),
+        where("courseId","==",selC),where("level","==",selLv)),
+      snap=>setQuestions(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
+    return unsub;
+  },[selC,selLv]);
+
+  // Merge static + custom test list
+  const allTests = [
+    ...staticChunks.map((qs,i)=>({
+      testNum:i+1,
+      name: testMetas.find(m=>m.testNum===i+1)?.name || `Test ${i+1}`,
+      metaId: testMetas.find(m=>m.testNum===i+1)?.id || null,
+      isStatic:true,
+      staticQs: qs,
+      customQs: questions.filter(q=>q.testNum===i+1),
+    })),
+    ...testMetas
+      .filter(m=>m.testNum>staticChunks.length)
+      .sort((a,b)=>a.testNum-b.testNum)
+      .map(m=>({
+        testNum: m.testNum,
+        name: m.name||`Test ${m.testNum}`,
+        metaId: m.id,
+        isStatic: false,
+        staticQs: [],
+        customQs: questions.filter(q=>q.testNum===m.testNum),
+      })),
+  ];
+
+  const nextTestNum = allTests.length>0 ? Math.max(...allTests.map(t=>t.testNum))+1 : staticChunks.length+1;
+
+  // ── Create new custom test ──
+  async function createTest(){
+    if(!newTestName.trim()){msg("❌ Test ka naam likho.");return;}
     setLoad(true);
     try{
-      await addDoc(collection(db,"quiz_questions"),{...form,courseId:selC,level:selLv,createdAt:serverTimestamp()});
-      setForm({q:"",opts:["","","",""],ans:0,topic:"",level:selLv});
-      setShow(false);msg("✅ Question added!");
+      await addDoc(collection(db,"quiz_tests"),{
+        courseId:selC, level:selLv, testNum:nextTestNum,
+        name:newTestName.trim(), createdAt:serverTimestamp()
+      });
+      msg(`✅ "${newTestName.trim()}" test create ho gaya!`);
+      setNewTestName("");setShowNewTest(false);
+    }catch(e){msg("❌ "+e.message);}
+    setLoad(false);
+  }
+
+  // ── Rename a test ──
+  async function renameTest(metaId, testNum, newName){
+    if(!newName.trim()){msg("❌ Naam blank nahi ho sakta.");return;}
+    setLoad(true);
+    try{
+      if(metaId){
+        await updateDoc(doc(db,"quiz_tests",metaId),{name:newName.trim()});
+      }else{
+        // Static test — create meta entry for just the name
+        await addDoc(collection(db,"quiz_tests"),{
+          courseId:selC, level:selLv, testNum, name:newName.trim(), createdAt:serverTimestamp()
+        });
+      }
+      msg("✅ Test naam update ho gaya!");
+      setEditingTestId(null);setEditingTestName("");
+    }catch(e){msg("❌ "+e.message);}
+    setLoad(false);
+  }
+
+  // ── Delete a custom test + its questions ──
+  async function deleteTest(t){
+    if(!window.confirm(`"${t.name}" test aur iske saare custom questions delete honge. Confirm?`))return;
+    setLoad(true);
+    try{
+      if(t.metaId) await deleteDoc(doc(db,"quiz_tests",t.metaId));
+      for(const q of t.customQs) await deleteDoc(doc(db,"quiz_questions",q.id));
+      if(viewTest===t.testNum) setViewTest(null);
+      msg("🗑 Test delete ho gaya.");
+    }catch(e){msg("❌ "+e.message);}
+    setLoad(false);
+  }
+
+  // ── Add / Edit question ──
+  function openAddQ(defaultTestNum){
+    setQForm({q:"",opts:["","","",""],ans:0,topic:"",testNum:defaultTestNum||allTests[0]?.testNum||1});
+    setQEditId(null);setShowQForm(true);
+  }
+  function openEditQ(q){
+    setQForm({q:q.q,opts:[...q.opts],ans:q.ans,topic:q.topic||"",testNum:q.testNum||1});
+    setQEditId(q.id);setShowQForm(true);
+  }
+
+  async function saveQ(){
+    if(!qForm.q.trim()||qForm.opts.some(o=>!o.trim())){msg("❌ Question aur sab 4 options bharo.");return;}
+    setLoad(true);
+    try{
+      if(qEditId){
+        await setDoc(doc(db,"quiz_questions",qEditId),
+          {...qForm,courseId:selC,level:selLv},{merge:true});
+        msg("✅ Question update ho gaya!");
+      }else{
+        await addDoc(collection(db,"quiz_questions"),
+          {...qForm,courseId:selC,level:selLv,createdAt:serverTimestamp()});
+        msg("✅ Question add ho gaya!");
+      }
+      setQForm({q:"",opts:["","","",""],ans:0,topic:"",testNum:qForm.testNum});
+      setQEditId(null);setShowQForm(false);
     }catch(e){msg("❌ "+e.message);}
     setLoad(false);
   }
 
   async function delQ(id){
+    if(!window.confirm("Question delete karein?"))return;
     try{await deleteDoc(doc(db,"quiz_questions",id));msg("🗑 Deleted.");}
     catch(e){msg("❌ "+e.message);}
   }
 
-  const li=LEVEL_INFO[selLv];
+  const displayedTests = viewTest===null ? allTests : allTests.filter(t=>t.testNum===viewTest);
 
   return(
     <div className="afi">
-      {toast&&<div style={{background:T.card,border:`1px solid ${T.accent}33`,borderRadius:8,padding:"10px 16px",marginBottom:14,fontSize:13,color:T.accent}}>{toast}</div>}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+      {toast&&<div style={{background:T.card,border:`1px solid ${T.accent}33`,borderRadius:8,
+        padding:"10px 16px",marginBottom:14,fontSize:13,color:T.accent}}>{toast}</div>}
+
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+        marginBottom:16,flexWrap:"wrap",gap:10}}>
         <div style={{fontWeight:700,fontSize:"clamp(14px,2vw,17px)"}}>
-          Quiz Questions <span className="badge ba" style={{marginLeft:8}}>{questions.length} custom</span>
+          Quiz Management
+          <span className="badge ba" style={{marginLeft:8}}>{allTests.length} tests</span>
         </div>
-        <button className="btn-p" onClick={()=>setShow(!show)} style={{padding:"9px 20px",fontSize:13}}>
-          {show?"✕ Cancel":"+ Add Question"}
-        </button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn-s" onClick={()=>{setShowNewTest(v=>!v);setShowQForm(false);}}
+            style={{fontSize:12,padding:"8px 14px"}}>
+            {showNewTest?"✕ Cancel":"➕ New Test"}
+          </button>
+          <button className="btn-p" onClick={()=>{setShowQForm(v=>!v);setShowNewTest(false);if(!showQForm)openAddQ(viewTest||allTests[0]?.testNum||1);}}
+            style={{fontSize:12,padding:"8px 14px"}}>
+            {showQForm?"✕ Cancel":"+ Add Question"}
+          </button>
+        </div>
       </div>
 
       {/* Course selector */}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
         {courses.map(c=>(
-          <button key={c.id} onClick={()=>setSelC(c.id)}
-            style={{padding:"6px 14px",borderRadius:99,border:`1px solid ${selC===c.id?c.color:T.border2}`,
-              background:selC===c.id?`${c.color}15`:T.card,color:selC===c.id?c.color:T.muted2,
+          <button key={c.id} onClick={()=>{setSelC(c.id);setViewTest(null);}}
+            style={{padding:"6px 14px",borderRadius:99,
+              border:`1px solid ${selC===c.id?c.color:T.border2}`,
+              background:selC===c.id?`${c.color}15`:T.card,
+              color:selC===c.id?c.color:T.muted2,
               fontWeight:600,fontSize:11,cursor:"pointer",transition:"all .2s"}}>
             {c.icon} {c.title.split(" ")[0]}
           </button>
@@ -3290,9 +6929,8 @@ function AdminQuizTab({courses}){
       <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
         {levels.map(lv=>{
           const lvi=LEVEL_INFO[lv];
-          const count=(STATIC_QUIZ[selC]?.[lv]||[]).length;
           return(
-            <button key={lv} onClick={()=>setSelLv(lv)}
+            <button key={lv} onClick={()=>{setSelLv(lv);setViewTest(null);}}
               style={{padding:"8px 16px",borderRadius:99,
                 border:`1.5px solid ${selLv===lv?lvi.color:T.border2}`,
                 background:selLv===lv?`${lvi.color}15`:T.card,
@@ -3300,51 +6938,91 @@ function AdminQuizTab({courses}){
                 fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s",
                 display:"flex",alignItems:"center",gap:6}}>
               {lvi.icon} {lvi.label}
-              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,opacity:.7}}>({count} static)</span>
             </button>
           );
         })}
       </div>
 
-      {show&&(
-        <div style={{background:T.card,border:`1px solid ${li.color}33`,borderRadius:12,
-          padding:"clamp(16px,3vw,24px)",marginBottom:18}} className="afu">
-          <div style={{fontWeight:700,fontSize:14,marginBottom:14,color:li.color}}>
-            {li.icon} New {li.label} Question — {courses.find(c=>c.id===selC)?.title}
+      {/* ── New Test Form ── */}
+      {showNewTest&&(
+        <div className="afu" style={{background:T.card,border:`1px solid ${T.success}33`,
+          borderRadius:12,padding:"clamp(14px,2.5vw,20px)",marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:13,color:T.success,marginBottom:10}}>
+            ➕ Naya Test Create Karo — {li.icon} {li.label} · {courses.find(c=>c.id===selC)?.title}
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <input className="inp" value={newTestName} placeholder={`Test naam (e.g. "Practice Set 1", "Mock Test")`}
+              style={{flex:1,minWidth:200}}
+              onChange={e=>setNewTestName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&createTest()}/>
+            <button className="btn-p" onClick={createTest} disabled={load}
+              style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+              {load&&<Spinner/>} Create Test
+            </button>
+          </div>
+          <div style={{fontSize:11,color:T.muted,marginTop:8}}>
+            Test number assign hoga: Test {nextTestNum}
+          </div>
+        </div>
+      )}
+
+      {/* ── Add/Edit Question Form ── */}
+      {showQForm&&(
+        <div className="afu" style={{background:T.card,border:`1px solid ${li.color}33`,
+          borderRadius:12,padding:"clamp(14px,2.5vw,22px)",marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:13,color:li.color,marginBottom:12}}>
+            {qEditId?"✏️ Edit Question":"➕ New Question"} — {li.icon} {li.label}
+          </div>
+          {/* Test assignment */}
+          <div style={{marginBottom:14}}>
+            <label className="lbl" style={{display:"block",marginBottom:6}}>📋 Kis Test Mein Dalna Hai?</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {allTests.map(t=>(
+                <button key={t.testNum} type="button"
+                  onClick={()=>setQForm(p=>({...p,testNum:t.testNum}))}
+                  style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:11,
+                    transition:"all .2s",
+                    border:`1.5px solid ${qForm.testNum===t.testNum?li.color:T.border2}`,
+                    background:qForm.testNum===t.testNum?`${li.color}15`:T.bg3,
+                    color:qForm.testNum===t.testNum?li.color:T.muted2}}>
+                  {t.name}
+                  {t.isStatic&&<span style={{fontSize:9,opacity:.6,marginLeft:4}}>(static)</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div>
               <label className="lbl">Question *</label>
-              <textarea className="inp" rows={2} value={form.q}
-                placeholder="Enter question..." style={{resize:"vertical"}}
-                onChange={e=>setForm(p=>({...p,q:e.target.value}))}/>
+              <textarea className="inp" rows={2} value={qForm.q} placeholder="Question likho..."
+                style={{resize:"vertical"}} onChange={e=>setQForm(p=>({...p,q:e.target.value}))}/>
             </div>
             <div>
               <label className="lbl">Topic (optional)</label>
-              <input className="inp" value={form.topic} placeholder="e.g. Arrays, OOP, Recursion..."
-                onChange={e=>setForm(p=>({...p,topic:e.target.value}))}/>
+              <input className="inp" value={qForm.topic} placeholder="e.g. Arrays, OOP..."
+                onChange={e=>setQForm(p=>({...p,topic:e.target.value}))}/>
             </div>
             {[0,1,2,3].map(i=>(
               <div key={i}>
                 <label className="lbl">
                   Option {String.fromCharCode(65+i)}
-                  {form.ans===i&&<span style={{color:T.success,marginLeft:8}}>← Correct Answer</span>}
+                  {qForm.ans===i&&<span style={{color:T.success,marginLeft:6,fontWeight:400}}>✓ Correct</span>}
                 </label>
-                <input className="inp" value={form.opts[i]}
+                <input className="inp" value={qForm.opts[i]}
                   placeholder={`Option ${String.fromCharCode(65+i)}`}
-                  style={{borderColor:form.ans===i?T.success:undefined}}
-                  onChange={e=>{const o=[...form.opts];o[i]=e.target.value;setForm(p=>({...p,opts:o}));}}/>
+                  style={{borderColor:qForm.ans===i?T.success:undefined}}
+                  onChange={e=>{const o=[...qForm.opts];o[i]=e.target.value;setQForm(p=>({...p,opts:o}));}}/>
               </div>
             ))}
             <div>
-              <label className="lbl">Correct Answer</label>
+              <label className="lbl">Sahi Answer Kaun Sa Hai?</label>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {["A","B","C","D"].map((l,i)=>(
-                  <button key={i} onClick={()=>setForm(p=>({...p,ans:i}))}
+                  <button key={i} type="button" onClick={()=>setQForm(p=>({...p,ans:i}))}
                     style={{padding:"8px 18px",borderRadius:8,
-                      border:`1.5px solid ${form.ans===i?T.success:T.border2}`,
-                      background:form.ans===i?`${T.success}15`:T.bg3,
-                      color:form.ans===i?T.success:T.muted2,
+                      border:`1.5px solid ${qForm.ans===i?T.success:T.border2}`,
+                      background:qForm.ans===i?`${T.success}15`:T.bg3,
+                      color:qForm.ans===i?T.success:T.muted2,
                       fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
                     Option {l}
                   </button>
@@ -3353,48 +7031,202 @@ function AdminQuizTab({courses}){
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:14,flexWrap:"wrap"}}>
-            <button className="btn-p" onClick={addQ} disabled={load}
+            <button className="btn-p" onClick={saveQ} disabled={load}
               style={{display:"flex",gap:8,alignItems:"center"}}>
-              {load&&<Spinner/>}Save Question
+              {load&&<Spinner/>}{qEditId?"Update Question":"Save Question"}
             </button>
-            <button className="btn-s" onClick={()=>setShow(false)}>Cancel</button>
+            <button className="btn-s" onClick={()=>{setShowQForm(false);setQEditId(null);}}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={{fontSize:11,color:T.muted,marginBottom:12,fontFamily:"'JetBrains Mono',monospace"}}>
-        Static: {(STATIC_QUIZ[selC]?.[selLv]||[]).length} · Custom: {questions.length} · Total shown in quiz: {(STATIC_QUIZ[selC]?.[selLv]||[]).length+questions.length}
+      {/* ── Test filter tabs ── */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        <span style={{fontSize:11,color:T.muted,marginRight:4}}>Filter:</span>
+        <button onClick={()=>setViewTest(null)}
+          style={{padding:"5px 12px",borderRadius:99,fontSize:11,fontWeight:600,cursor:"pointer",
+            border:`1px solid ${viewTest===null?li.color:T.border2}`,
+            background:viewTest===null?`${li.color}15`:T.card,
+            color:viewTest===null?li.color:T.muted2,transition:"all .2s"}}>
+          All Tests
+        </button>
+        {allTests.map(t=>(
+          <button key={t.testNum} onClick={()=>setViewTest(t.testNum)}
+            style={{padding:"5px 12px",borderRadius:99,fontSize:11,fontWeight:600,cursor:"pointer",
+              border:`1px solid ${viewTest===t.testNum?li.color:T.border2}`,
+              background:viewTest===t.testNum?`${li.color}15`:T.card,
+              color:viewTest===t.testNum?li.color:T.muted2,transition:"all .2s"}}>
+            {t.name}
+          </button>
+        ))}
       </div>
 
-      {questions.length===0
-        ?<div style={{textAlign:"center",padding:"36px 20px",color:T.muted,fontSize:13,
-          background:T.card,borderRadius:12,border:`1px dashed ${T.border2}`}}>
-          No custom questions yet for {li.label} level. Add using the button above!
-        </div>
-        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {questions.map((q,i)=>(
-            <div key={q.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,
-              padding:"clamp(11px,2vw,15px) clamp(13px,2.5vw,17px)",
-              borderLeft:`3px solid ${li.color}`,display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:180}}>
-                {q.topic&&<div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:T.muted,letterSpacing:1.5,marginBottom:3}}>{q.topic}</div>}
-                <div style={{fontWeight:600,fontSize:"clamp(12px,1.5vw,13px)",marginBottom:8,lineHeight:1.5}}>{q.q}</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                  {q.opts.map((o,j)=>(
-                    <span key={j} style={{fontSize:11,padding:"3px 9px",borderRadius:6,
-                      background:j===q.ans?`${T.success}15`:T.bg3,
-                      color:j===q.ans?T.success:T.muted2,
-                      border:`1px solid ${j===q.ans?T.success:T.border}`}}>
-                      {String.fromCharCode(65+j)}. {o}
-                    </span>
-                  ))}
-                </div>
+      {/* ── Tests list with questions inside ── */}
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {displayedTests.map(t=>(
+          <div key={t.testNum} style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
+
+            {/* Test header */}
+            <div style={{background:T.bg3,padding:"clamp(12px,2vw,16px) clamp(14px,2.5vw,18px)",
+              display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+              borderBottom:`1px solid ${T.border}`}}>
+              <div style={{width:32,height:32,borderRadius:8,
+                background:`${li.color}15`,border:`1.5px solid ${li.color}33`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:13,
+                color:li.color,flexShrink:0}}>
+                {t.testNum}
               </div>
-              <button onClick={()=>delQ(q.id)} className="btn-r" style={{padding:"5px 11px",fontSize:11,flexShrink:0}}>🗑</button>
+
+              {/* Inline rename or display */}
+              {editingTestId===t.testNum
+                ?<div style={{display:"flex",gap:8,flex:1,minWidth:180,alignItems:"center",flexWrap:"wrap"}}>
+                  <input className="inp" value={editingTestName}
+                    style={{flex:1,minWidth:140,padding:"6px 10px",fontSize:13}}
+                    autoFocus
+                    onChange={e=>setEditingTestName(e.target.value)}
+                    onKeyDown={e=>{
+                      if(e.key==="Enter") renameTest(t.metaId,t.testNum,editingTestName);
+                      if(e.key==="Escape"){setEditingTestId(null);setEditingTestName("");}
+                    }}/>
+                  <button className="btn-p" style={{padding:"5px 12px",fontSize:11,flexShrink:0}}
+                    onClick={()=>renameTest(t.metaId,t.testNum,editingTestName)}>
+                    Save
+                  </button>
+                  <button className="btn-s" style={{padding:"5px 12px",fontSize:11,flexShrink:0}}
+                    onClick={()=>{setEditingTestId(null);setEditingTestName("");}}>
+                    Cancel
+                  </button>
+                </div>
+                :<div style={{flex:1,minWidth:0}}>
+                  <span style={{fontWeight:700,fontSize:"clamp(13px,1.8vw,15px)"}}>{t.name}</span>
+                  {t.isStatic&&<span style={{fontSize:10,color:T.muted,marginLeft:8,
+                    fontFamily:"'JetBrains Mono',monospace"}}>
+                    {t.staticQs.length} static + {t.customQs.length} custom
+                  </span>}
+                  {!t.isStatic&&<span style={{fontSize:10,color:T.muted,marginLeft:8,
+                    fontFamily:"'JetBrains Mono',monospace"}}>
+                    {t.customQs.length} questions
+                  </span>}
+                </div>
+              }
+
+              {/* Test actions */}
+              {editingTestId!==t.testNum&&(
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  <button onClick={()=>{setEditingTestId(t.testNum);setEditingTestName(t.name);}}
+                    style={{padding:"5px 10px",fontSize:11,background:`${T.blue}15`,
+                      color:T.blue,border:`1px solid ${T.blue}33`,borderRadius:6,cursor:"pointer"}}>
+                    ✏️ Rename
+                  </button>
+                  <button onClick={()=>{openAddQ(t.testNum);setShowQForm(true);setShowNewTest(false);}}
+                    style={{padding:"5px 10px",fontSize:11,background:`${T.success}15`,
+                      color:T.success,border:`1px solid ${T.success}33`,borderRadius:6,cursor:"pointer"}}>
+                    + Add Q
+                  </button>
+                  {!t.isStatic&&(
+                    <button onClick={()=>deleteTest(t)} className="btn-r"
+                      style={{padding:"5px 10px",fontSize:11}}>
+                      🗑
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
-        </div>
-      }
+
+            {/* Questions inside this test */}
+            <div style={{padding:"clamp(10px,1.5vw,14px)"}}>
+              {/* Static questions (read-only display, but can add custom to same test) */}
+              {t.isStatic&&t.staticQs.length>0&&(
+                <div style={{marginBottom:t.customQs.length>0?10:0}}>
+                  <div style={{fontSize:10,color:T.muted,fontFamily:"'JetBrains Mono',monospace",
+                    letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}}>
+                    Static Questions ({t.staticQs.length})
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {t.staticQs.map((q,qi)=>(
+                      <div key={qi} style={{background:T.bg3,borderRadius:8,
+                        padding:"clamp(8px,1.5vw,11px) clamp(10px,2vw,14px)",
+                        border:`1px solid ${T.border}`,opacity:.85}}>
+                        <div style={{fontSize:"clamp(11px,1.4vw,12px)",fontWeight:600,lineHeight:1.5,marginBottom:5}}>{q.q}</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                          {q.opts.map((o,oi)=>(
+                            <span key={oi} style={{fontSize:10,padding:"2px 8px",borderRadius:5,
+                              background:oi===q.ans?`${T.success}15`:T.card,
+                              color:oi===q.ans?T.success:T.muted2,
+                              border:`1px solid ${oi===q.ans?T.success:T.border}`}}>
+                              {String.fromCharCode(65+oi)}. {o}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom questions (editable) */}
+              {t.customQs.length>0&&(
+                <div>
+                  {t.isStatic&&<div style={{fontSize:10,color:T.accent,fontFamily:"'JetBrains Mono',monospace",
+                    letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}}>
+                    Custom Questions ({t.customQs.length})
+                  </div>}
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {t.customQs.map(q=>(
+                      <div key={q.id} style={{background:T.card,borderRadius:8,
+                        padding:"clamp(9px,1.5vw,12px) clamp(11px,2vw,15px)",
+                        border:`1px solid ${T.border}`,borderLeft:`3px solid ${li.color}`,
+                        display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                        <div style={{flex:1,minWidth:160}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                            {q.topic&&<span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,
+                              color:T.muted,letterSpacing:1.5}}>{q.topic}</span>}
+                            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,
+                              color:T.accent,background:`${T.accent}12`,
+                              border:`1px solid ${T.accent}22`,borderRadius:4,padding:"1px 6px"}}>
+                              custom
+                            </span>
+                          </div>
+                          <div style={{fontSize:"clamp(11px,1.4vw,12px)",fontWeight:600,lineHeight:1.5,marginBottom:5}}>{q.q}</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                            {q.opts.map((o,oi)=>(
+                              <span key={oi} style={{fontSize:10,padding:"2px 8px",borderRadius:5,
+                                background:oi===q.ans?`${T.success}15`:T.bg3,
+                                color:oi===q.ans?T.success:T.muted2,
+                                border:`1px solid ${oi===q.ans?T.success:T.border}`}}>
+                                {String.fromCharCode(65+oi)}. {o}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:5,flexShrink:0}}>
+                          <button onClick={()=>{openEditQ(q);setShowQForm(true);setShowNewTest(false);}}
+                            style={{padding:"4px 10px",fontSize:11,background:`${T.blue}15`,
+                              color:T.blue,border:`1px solid ${T.blue}33`,borderRadius:6,cursor:"pointer"}}>
+                            ✏️
+                          </button>
+                          <button onClick={()=>delQ(q.id)} className="btn-r"
+                            style={{padding:"4px 10px",fontSize:11}}>
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {t.customQs.length===0&&!t.isStatic&&(
+                <div style={{textAlign:"center",padding:"20px",color:T.muted,fontSize:12,
+                  border:`1px dashed ${T.border2}`,borderRadius:8}}>
+                  Koi question nahi. "+ Add Q" se add karo.
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3410,12 +7242,16 @@ function LeaderboardPage({user,courses,setPage}){
 
   useEffect(()=>{
     async function load(){
+      // Use session cache to avoid re-fetching leaderboard on every visit
+      const cached=sessionStorage.getItem("hs_lb");
+      if(cached){try{const d=JSON.parse(cached);setStudents(d.students);setProgMap(d.prog);setLoad(false);return;}catch{}}
       try{
         const uSnap=await getDocs(collection(db,"users"));
         const pSnap=await getDocs(collection(db,"progress"));
         const users=uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
         const prog={};
         pSnap.docs.forEach(d=>prog[d.id]=d.data());
+        sessionStorage.setItem("hs_lb",JSON.stringify({students:users,prog}));
         setStudents(users);
         setProgMap(prog);
       }catch(e){}
@@ -3909,15 +7745,41 @@ function Footer({setPage}){
             <p style={{fontSize:13,color:T.muted2,lineHeight:1.8,maxWidth:260}}>Free coding education. Powered by Firebase. Built for students. Always free.</p>
           </div>
           {[
-            {title:"Tracks",links:[["Programming","courses"],["Web Dev","courses"],["DSA","courses"],["Cybersecurity","courses"],["CP","courses"]]},
-            {title:"Platform",links:[["Home","home"],["Courses","courses"],["About","about"],["Login","login"]]},
-            {title:"Resources",links:[["LeetCode","courses"],["Codeforces","courses"],["TryHackMe","courses"],["GitHub","courses"]]},
+            {title:"Courses",links:[
+              {l:"All Courses",    type:"page", p:"courses"},
+              {l:"My Learning",    type:"page", p:"my-learning"},
+              {l:"Quiz & Tests",   type:"page", p:"quiz"},
+              {l:"Leaderboard",    type:"page", p:"leaderboard"},
+              {l:"Job Placement",  type:"page", p:"placement"},
+            ]},
+            {title:"Platform",links:[
+              {l:"Home",           type:"page", p:"home"},
+              {l:"About",          type:"page", p:"about"},
+              {l:"Study Notes",    type:"page", p:"notes"},
+              {l:"Notifications",  type:"page", p:"notifications"},
+              {l:"Profile",        type:"page", p:"profile"},
+            ]},
+            {title:"Resources",links:[
+              {l:"LeetCode →",     type:"url",  p:"https://leetcode.com"},
+              {l:"Codeforces →",   type:"url",  p:"https://codeforces.com"},
+              {l:"TryHackMe →",    type:"url",  p:"https://tryhackme.com"},
+              {l:"GitHub →",       type:"url",  p:"https://github.com"},
+              {l:"MDN Docs →",     type:"url",  p:"https://developer.mozilla.org"},
+            ]},
           ].map(col=>(
             <div key={col.title}>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:14}}>{col.title}</div>
-              {col.links.map(([l,p])=>(
-                <div key={l} onClick={()=>setPage(p)} style={{fontSize:13,color:T.muted2,marginBottom:9,cursor:"pointer",transition:"color .2s"}}
-                  onMouseEnter={e=>e.target.style.color=T.accent} onMouseLeave={e=>e.target.style.color=T.muted2}>{l}</div>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:T.text}}>{col.title}</div>
+              {col.links.map((item)=>(
+                item.type==="url"
+                  ?<a key={item.l} href={item.p} target="_blank" rel="noreferrer"
+                    style={{display:"block",fontSize:13,color:T.muted2,marginBottom:9,
+                      cursor:"pointer",transition:"color .2s",textDecoration:"none"}}
+                    onMouseEnter={e=>e.target.style.color=T.accent}
+                    onMouseLeave={e=>e.target.style.color=T.muted2}>{item.l}</a>
+                  :<div key={item.l} onClick={()=>setPage(item.p)}
+                    style={{fontSize:13,color:T.muted2,marginBottom:9,cursor:"pointer",transition:"color .2s"}}
+                    onMouseEnter={e=>e.target.style.color=T.accent}
+                    onMouseLeave={e=>e.target.style.color=T.muted2}>{item.l}</div>
               ))}
             </div>
           ))}
@@ -3931,7 +7793,6 @@ function Footer({setPage}){
     </footer>
   );
 }
-
 // ================================================================
 //  ROOT APP — Back button history + Notifications
 // ================================================================
@@ -3943,6 +7804,8 @@ export default function App(){
   const [watch,setWatch]=useState(null);
   const [booting,setBooting]=useState(true);
   const [notifCount,setNotifCount]=useState(0);
+  const [progress,setProgress]=useState({}); // shared progress cache
+  const progressUid=useRef(null); // track which uid is loaded
 
 
   // Back button — go to previous page in history
@@ -3965,12 +7828,14 @@ export default function App(){
     setPage(p);
   }
 
-  // Browser back button support
+  // Browser back button support — useRef to avoid re-registering on every history change
+  const goBackRef=useRef(goBack);
+  useEffect(()=>{goBackRef.current=goBack;},[history]);
   useEffect(()=>{
-    const handler=(e)=>{e.preventDefault();goBack();};
+    const handler=(e)=>{e.preventDefault();goBackRef.current();};
     window.addEventListener("popstate",handler);
     return()=>window.removeEventListener("popstate",handler);
-  },[history]);
+  },[]);
 
   // Firebase Auth listener
   useEffect(()=>{
@@ -3990,17 +7855,19 @@ export default function App(){
     });
   },[]);
 
-  // Load courses
+  // Load courses — live listener so admin changes appear instantly
   useEffect(()=>{
-    async function load(){
-      await seedCoursesIfNeeded();
-      try{
-        const snap=await getDocs(query(collection(db,"courses"),orderBy("createdAt")));
-        setCourses(snap.empty?SEED_COURSES:snap.docs.map(d=>({...d.data(),id:d.id})));
-      }catch{setCourses(SEED_COURSES);}
-      setBooting(false);
-    }
-    load().catch(()=>{setCourses(SEED_COURSES);setBooting(false);});
+    seedCoursesIfNeeded().catch(()=>{});
+    const q=query(collection(db,"courses"),orderBy("createdAt"));
+    const unsub=onSnapshot(q,
+      snap=>{
+        if(!snap.empty)setCourses(snap.docs.map(d=>({...d.data(),id:d.id})));
+        else setCourses(SEED_COURSES);
+        setBooting(false);
+      },
+      ()=>{setCourses(SEED_COURSES);setBooting(false);}
+    );
+    return unsub;
   },[]);
 
   // Notification count — unread notifications
@@ -4016,6 +7883,14 @@ export default function App(){
   },[]);
 
   function logout(){signOut(auth);setUser(null);navigate("home");setHistory(["home"]);}
+
+  // Load progress once per user (shared across Dashboard + MyLearning)
+  useEffect(()=>{
+    if(!user?.uid||user.role==="admin")return;
+    if(progressUid.current===user.uid)return; // already loaded for this user
+    progressUid.current=user.uid;
+    getProgress(user.uid).then(p=>setProgress(p)).catch(()=>{});
+  },[user?.uid]);
 
   // Auth guard
   useEffect(()=>{
@@ -4065,8 +7940,8 @@ export default function App(){
       {page==="notes"       &&<NotesPage       user={user} setPage={navigate}/>}
       {page==="notifications"&&user&&<NotificationsPage user={user} setPage={navigate}/>}
       {page==="profile"     &&user&&user.role!=="admin"&&<ProfilePage user={user} setUser={setUser} setPage={navigate}/>}
-      {page==="dashboard"   &&user?.role!=="admin"&&<DashboardPage   user={user} courses={courses} setPage={navigate} setWatch={setWatch}/>}
-      {page==="my-learning" &&user?.role!=="admin"&&<MyLearningPage  user={user} courses={courses} setPage={navigate} setWatch={setWatch}/>}
+      {page==="dashboard"   &&user?.role!=="admin"&&<DashboardPage   user={user} courses={courses} setPage={navigate} setWatch={setWatch} progress={progress}/>}
+      {page==="my-learning" &&user?.role!=="admin"&&<MyLearningPage  user={user} courses={courses} setPage={navigate} setWatch={setWatch} progress={progress}/>}
       {page==="quiz"        &&<QuizPage         user={user} courses={courses} setPage={navigate}/>}
       {page==="leaderboard" &&<LeaderboardPage  user={user} courses={courses} setPage={navigate}/>}
       {page==="placement"   &&<JobPlacementPage setPage={navigate}/>}
