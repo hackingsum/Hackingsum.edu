@@ -8316,18 +8316,31 @@ export default function App(){
 
   function goBack(){
     if(history.length>1){
-      const prev=history[history.length-2];
-      setHistory(h=>h.slice(0,-1));
+      // Login/Register pages ko history mein skip karo
+      const skipPages=["login","register"];
+      let prevIdx=history.length-2;
+      while(prevIdx>0 && skipPages.includes(history[prevIdx])) prevIdx--;
+      const prev=history[prevIdx];
+      setHistory(h=>h.slice(0,prevIdx+1));
       setPage(prev);
+      window.scrollTo(0,0);
     }else{
       setPage("home");
+      window.scrollTo(0,0);
     }
   }
 
   function navigate(p){
     if(page===p)return;
-    window.history.pushState({page:p},'','/'+p);
-    setHistory(h=>[...h.slice(-9),p]);
+    // Login/Register ke baad navigate karne par unhe history mein replace karo push nahi
+    const replacePages=["login","register"];
+    if(replacePages.includes(page)){
+      window.history.replaceState({page:p},'','/'+p==='home'?'/':'/'+p);
+      setHistory(h=>[...h.slice(0,-1),p]);
+    }else{
+      window.history.pushState({page:p},'',(p==='home'?'/':'/'+p));
+      setHistory(h=>[...h.slice(-9),p]);
+    }
     setPage(p);
     window.scrollTo(0,0);
   }
@@ -8340,8 +8353,8 @@ export default function App(){
     if(valid.includes(slug)&&slug!=='home'){setPage(slug);setHistory(['home',slug]);}
     else{window.history.replaceState({page:'home'},'','/');}
     const handler=(e)=>{
-      if(e.state?.page){setPage(e.state.page);setHistory(h=>[...h.slice(-9),e.state.page]);}
-      else goBackRef.current();
+      if(e.state?.page){setPage(e.state.page);setHistory(h=>[...h.slice(-9),e.state.page]);window.scrollTo(0,0);}
+      else{goBackRef.current();}
     };
     window.addEventListener('popstate',handler);
     return()=>window.removeEventListener('popstate',handler);
