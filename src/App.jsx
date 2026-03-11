@@ -1794,7 +1794,7 @@ function AboutPage({setPage}){
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:18,
             background:`${T.accent}0d`,border:`1px solid ${T.accent}33`,padding:"5px 14px",borderRadius:8}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"pulse 2s infinite"}}/>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY · EST. 2026</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY</span>
           </div>
           <h1 style={{fontWeight:800,fontSize:"clamp(30px,6vw,58px)",letterSpacing:"-2px",lineHeight:1.05,marginBottom:18}}>
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
@@ -8316,44 +8316,46 @@ export default function App(){
 
   function goBack(){
     if(history.length>1){
-      // Login/Register pages ko history mein skip karo
       const skipPages=["login","register"];
       let prevIdx=history.length-2;
       while(prevIdx>0 && skipPages.includes(history[prevIdx])) prevIdx--;
       const prev=history[prevIdx];
       setHistory(h=>h.slice(0,prevIdx+1));
       setPage(prev);
-      window.scrollTo(0,0);
+      window.scrollTo({top:0,behavior:'instant'});
     }else{
       setPage("home");
-      window.scrollTo(0,0);
+      window.scrollTo({top:0,behavior:'instant'});
     }
   }
 
   function navigate(p){
     if(page===p)return;
-    // Login/Register ke baad navigate karne par unhe history mein replace karo push nahi
     const replacePages=["login","register"];
     if(replacePages.includes(page)){
-      window.history.replaceState({page:p},'','/'+p==='home'?'/':'/'+p);
+      window.history.replaceState({page:p},'',(p==='home'?'/':'/'+p));
       setHistory(h=>[...h.slice(0,-1),p]);
     }else{
       window.history.pushState({page:p},'',(p==='home'?'/':'/'+p));
       setHistory(h=>[...h.slice(-9),p]);
     }
     setPage(p);
-    window.scrollTo(0,0);
+    window.scrollTo({top:0,behavior:'instant'});
   }
 
   const goBackRef=useRef(goBack);
   useEffect(()=>{goBackRef.current=goBack;},[history]);
   useEffect(()=>{
+    // Browser ka automatic scroll restoration band karo
+    if('scrollRestoration' in window.history){
+      window.history.scrollRestoration='manual';
+    }
     const slug=window.location.pathname.replace(/^\/+/,'')||'home';
     const valid=['home','login','register','courses','watch','about','notes','notifications','profile','dashboard','my-learning','quiz','quiz-progress','leaderboard','placement','admin','admin-courses','admin-notes','admin-quiz','admin-students'];
     if(valid.includes(slug)&&slug!=='home'){setPage(slug);setHistory(['home',slug]);}
     else{window.history.replaceState({page:'home'},'','/');}
     const handler=(e)=>{
-      if(e.state?.page){setPage(e.state.page);setHistory(h=>[...h.slice(-9),e.state.page]);window.scrollTo(0,0);}
+      if(e.state?.page){setPage(e.state.page);setHistory(h=>[...h.slice(-9),e.state.page]);window.scrollTo({top:0,behavior:'instant'});}
       else{goBackRef.current();}
     };
     window.addEventListener('popstate',handler);
@@ -8413,6 +8415,11 @@ export default function App(){
     if(!user&&["dashboard","my-learning","watch","profile","notes","notifications"].includes(page))navigate("login");
     if(user?.role==="admin"&&["dashboard","my-learning"].includes(page))navigate("admin");
   },[page,user]);
+
+  // Har page change par top pe scroll — React render ke baad
+  useEffect(()=>{
+    window.scrollTo({top:0,behavior:'instant'});
+  },[page]);
 
   if(booting)return(
     <>
