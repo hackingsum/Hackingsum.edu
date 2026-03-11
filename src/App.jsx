@@ -1794,7 +1794,7 @@ function AboutPage({setPage}){
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:18,
             background:`${T.accent}0d`,border:`1px solid ${T.accent}33`,padding:"5px 14px",borderRadius:8}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"pulse 2s infinite"}}/>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY · EST. 2026</span>
           </div>
           <h1 style={{fontWeight:800,fontSize:"clamp(30px,6vw,58px)",letterSpacing:"-2px",lineHeight:1.05,marginBottom:18}}>
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
@@ -6900,7 +6900,7 @@ function QuizPage({user,courses,setPage}){
 
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(3,1fr)",
+        gridTemplateColumns:"repeat(auto-fill,minmax(min(100%,300px),1fr))",
         gap:"clamp(14px,2vw,22px)",
       }}>
         {courses.map((c,i)=>{
