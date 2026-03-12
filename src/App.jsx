@@ -761,7 +761,7 @@ function CourseCard({course:c,i=0,onClick}){
 
 const PATH_ICONS=["⌨️","🌐","🧠","🔐","🏆","🐍","⚙️","📱","☁️","🎯","🔥","💡","🛡️","📊","🎮"];
 
-function PathSection({courses,setPage,user}){
+function PathSection({courses,setPage,user,setWatch}){
   const [paths,setPaths]=useState([]);
   const [loaded,setLoaded]=useState(false);
   const [editPath,setEditPath]=useState(null); // {id,name,icon,color,desc,courseIds} or "new"
@@ -929,7 +929,32 @@ function PathSection({courses,setPage,user}){
               const isFallback=p.id?.startsWith("fb");
               return(
                 <div key={p.id} style={{position:"relative",animation:`fadeUp .5s ease ${i*.08}s both`}}>
-                  <button onClick={()=>setPage("courses")} className="card card-h"
+                  <button onClick={()=>{
+                    // Agar path mein courseIds hain → first course pe directly jao
+                    // Agar nahi → courses page pe category filter se jao
+                    // Ek course wale path → direct wo course kholo
+                    // Multiple courses wale → courses page pe category filter
+                    if(p.courseIds&&p.courseIds.length===1){
+                      const targetCourse=courses.find(c=>c.id===p.courseIds[0]);
+                      if(targetCourse){
+                        setWatch({course:targetCourse,video:targetCourse.videos?.[0]||null});
+                        setPage("watch");
+                        return;
+                      }
+                    }
+                    // Multiple courses — category filter
+                    const catMap={
+                      "Foundations":"Fundamentals","Networking":"Networking","Linux":"Linux",
+                      "Programming":"Programming","Web Dev":"Web Dev","Database":"Database",
+                      "DevTools":"DevTools","DSA":"DSA","Cloud":"Cloud",
+                      "Cybersecurity":"Cybersecurity","Competitive":"CP",
+                    };
+                    const cat=catMap[p.name]||p.name;
+                    setPage("courses");
+                    setTimeout(()=>{
+                      window.dispatchEvent(new CustomEvent("hs:filterCat",{detail:cat}));
+                    },120);
+                  }} className="card card-h"
                     style={{
                       width:"100%",
                       padding:"clamp(18px,2.5vw,26px) clamp(12px,2vw,18px)",
@@ -982,7 +1007,7 @@ function PathSection({courses,setPage,user}){
   );
 }
 
-function HomePage({setPage,courses,user}){
+function HomePage({setPage,courses,user,setWatch}){
   const cats=[
     {name:"Programming",icon:"⌨️",color:T.accent},{name:"Web Dev",icon:"🌐",color:T.blue},
     {name:"DSA",icon:"🧠",color:T.pink},{name:"Cybersecurity",icon:"🔐",color:T.purple},{name:"CP",icon:"🏆",color:T.amber},
@@ -1055,7 +1080,7 @@ function HomePage({setPage,courses,user}){
                 animation:"heroReveal .7s cubic-bezier(.22,1,.36,1) .4s both",
               }}>
                 <div className="stats-row">
-                  {[["6+","Courses"],["22+","Videos"],["5","Tracks"],["100%","Free"]].map(([n,l])=>(
+                  {[["12+","Courses"],["60+","Videos"],["11","Tracks"],["7200+","Quiz Qs"]].map(([n,l])=>(
                     <div key={l} className="stat-item">
                       <div className="stat-num">{n}</div>
                       <div className="stat-lbl">{l}</div>
@@ -1124,7 +1149,7 @@ function HomePage({setPage,courses,user}){
       </section>
 
       <div className="divider"/>
-      <PathSection courses={courses} setPage={setPage} user={user}/>
+      <PathSection courses={courses} setPage={setPage} user={user} setWatch={setWatch}/>
 
       <div className="divider"/>
       <section className="sec">
@@ -1137,11 +1162,19 @@ function HomePage({setPage,courses,user}){
             <button className="btn-s" onClick={()=>setPage("courses")} style={{padding:"10px 22px",fontSize:13}}>View All →</button>
           </div>
           <div className="grid-auto">
-            {courses.slice(0,3).map((c,i)=>(
-              <div key={c.id} onClick={()=>setPage("courses")}>
+            {courses.slice(0,12).map((c,i)=>(
+              <div key={c.id}
+                onClick={()=>{setWatch({course:c,video:c.videos?.[0]||null});setPage("watch");}}
+                style={{cursor:"pointer"}}>
                 <CourseCard course={c} i={i} onClick={()=>{}}/>
               </div>
             ))}
+          </div>
+          <div style={{textAlign:"center",marginTop:24}}>
+            <button className="btn-s" onClick={()=>setPage("courses")}
+              style={{padding:"11px 32px",fontSize:13,borderRadius:10}}>
+              View All Courses →
+            </button>
           </div>
         </div>
       </section>
@@ -1673,6 +1706,19 @@ function CoursesPage({courses,setPage,setWatch}){
   const [filter,setFilter]=useState("All");
   const [search,setSearch]=useState("");
   const cats=["All","Fundamentals","Networking","Linux","Programming","Web Dev","Database","DevTools","DSA","Cloud","Cybersecurity","CP"];
+
+  // Listen for path click event → auto set category filter
+  useEffect(()=>{
+    const handler=(e)=>{
+      const cat=e.detail;
+      if(cats.includes(cat))setFilter(cat);
+      else setFilter("All");
+      // Scroll to top of page
+      window.scrollTo({top:0,behavior:"smooth"});
+    };
+    window.addEventListener("hs:filterCat",handler);
+    return ()=>window.removeEventListener("hs:filterCat",handler);
+  },[]);
   const filtered=courses.filter(c=>
     (filter==="All"||c.category===filter)&&
     (search===""||c.title.toLowerCase().includes(search.toLowerCase())||c.description?.toLowerCase().includes(search.toLowerCase()))
@@ -1869,7 +1915,7 @@ function MyLearningPage({user,courses,setPage,setWatch,progress}){
   );
 }
 
-function AboutPage({setPage}){
+function AboutPage({setPage,courses=[]}){
   return(
     <div>
       <section style={{
@@ -1883,7 +1929,7 @@ function AboutPage({setPage}){
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:18,
             background:`${T.accent}0d`,border:`1px solid ${T.accent}33`,padding:"5px 14px",borderRadius:8}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"pulse 2s infinite"}}/>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY · EST. 2026</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY</span>
           </div>
           <h1 style={{fontWeight:800,fontSize:"clamp(30px,6vw,58px)",letterSpacing:"-2px",lineHeight:1.05,marginBottom:18}}>
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
@@ -1902,21 +1948,28 @@ function AboutPage({setPage}){
       <div className="divider"/>
       <section style={{padding:"clamp(32px,5vw,52px) clamp(16px,4vw,40px)",background:T.bg2}}>
         <div className="wrap">
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:0,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
+          <div style={{
+              display:"grid",
+              gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",
+              gap:1,
+              background:T.border,
+              border:`1px solid ${T.border}`,
+              borderRadius:14,
+              overflow:"hidden"
+            }}>
             {[
-              {n:"6+",l:"Free Courses",c:T.accent},
-              {n:"22+",l:"Video Lessons",c:T.blue},
-              {n:"5",l:"Learning Tracks",c:T.pink},
-              {n:"₹0",l:"Cost Forever",c:T.amber},
-              {n:"☁",l:"Firebase Sync",c:T.purple},
-            ].map((s,i,arr)=>(
+              {n:"12+",l:"Free Courses",c:T.accent},
+              {n:"60+",l:"Video Lessons",c:T.blue},
+              {n:"11",l:"Tracks",c:T.pink},
+              {n:"₹0",l:"Forever",c:T.amber},
+              {n:"7200+",l:"Quiz Qs",c:T.purple},
+            ].map((s)=>(
               <div key={s.l} style={{
                 padding:"clamp(20px,3vw,32px) 16px",textAlign:"center",
-                borderRight:i<arr.length-1?`1px solid ${T.border}`:"none",
-                background:`linear-gradient(180deg,${s.c}06 0%,transparent 100%)`,
+                background:T.bg2,
               }}>
-                <div style={{fontWeight:800,fontSize:"clamp(26px,4vw,38px)",color:s.c,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{s.n}</div>
-                <div style={{fontSize:"clamp(10px,1.2vw,12px)",color:T.muted,letterSpacing:1.5,textTransform:"uppercase",marginTop:6}}>{s.l}</div>
+                <div style={{fontWeight:800,fontSize:"clamp(24px,4vw,36px)",color:s.c,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{s.n}</div>
+                <div style={{fontSize:"clamp(10px,1.2vw,12px)",color:T.muted,letterSpacing:1,textTransform:"uppercase",marginTop:6}}>{s.l}</div>
               </div>
             ))}
           </div>
@@ -1926,7 +1979,7 @@ function AboutPage({setPage}){
       <div className="divider"/>
       <section className="sec">
         <div className="wrap" style={{maxWidth:1060}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"clamp(24px,4vw,48px)",alignItems:"center"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,400px),1fr))",gap:"clamp(24px,4vw,48px)",alignItems:"center"}}>
             <div className="afu">
               <div className="stag">Our Story</div>
               <h2 style={{fontWeight:800,fontSize:"clamp(22px,3.5vw,36px)",letterSpacing:"-1px",marginBottom:18,lineHeight:1.2}}>
@@ -1971,14 +2024,20 @@ function AboutPage({setPage}){
           <h2 style={{fontWeight:800,fontSize:"clamp(22px,3.5vw,38px)",letterSpacing:"-1.5px",marginBottom:"clamp(24px,4vw,40px)"}}>
             Platform <span className="gt2">Features</span>
           </h2>
-          <div className="grid-3">
+          <div className="grid-auto">
             {[
-              {icon:"🐍",title:"Python Zero to Hero",desc:"From absolute scratch to variables, OOP, and real projects. The best starting point for beginners.",color:T.accent,tag:"Beginner Friendly"},
-              {icon:"🌐",title:"Web Development",desc:"HTML, CSS, JavaScript — build real websites from day one. Portfolio-ready projects included.",color:T.blue,tag:"Project Based"},
-              {icon:"🧠",title:"DSA + Algorithms",desc:"Interview-focused DSA — Trees, Graphs, DP, sorting. FAANG prep included.",color:T.pink,tag:"Interview Prep"},
-              {icon:"🔐",title:"Cybersecurity",desc:"Ethical hacking, Linux CLI, networking, OWASP Top 10, CTF basics.",color:T.purple,tag:"Hands-on Labs"},
-              {icon:"⚙️",title:"C++ Masterclass",desc:"Pointers, STL, templates and competitive programming techniques. Reach power-user level.",color:T.cyan,tag:"Advanced"},
-              {icon:"🏆",title:"Competitive Programming",desc:"Greedy, D&C, Binary Search, Graphs — targeted prep for Codeforces and ICPC.",color:T.amber,tag:"Contest Ready"},
+              {icon:"💻",title:"Computer Fundamentals",desc:"Hardware, OS, binary, how computers actually work — the foundation before everything else.",color:"#34d399",tag:"Start Here"},
+              {icon:"🌍",title:"Networking Fundamentals",desc:"TCP/IP, DNS, HTTP, subnetting — know how the internet works inside out.",color:"#60a5fa",tag:"Essential"},
+              {icon:"🐧",title:"Linux & Command Line",desc:"Terminal, shell scripting, file system, permissions — the language of real engineers.",color:"#fb923c",tag:"Must Know"},
+              {icon:"🐍",title:"Python Zero to Hero",desc:"From absolute scratch to variables, OOP, and real projects. The best starting point for beginners.",color:T.accent,tag:"Beginner"},
+              {icon:"⚙️",title:"C++ Masterclass",desc:"Pointers, STL, templates and competitive programming techniques. Power-user level.",color:T.cyan,tag:"Advanced"},
+              {icon:"🌐",title:"Web Dev: HTML+CSS+JS",desc:"Build real websites from day one — structure, style, interactivity. Portfolio ready.",color:T.blue,tag:"Project Based"},
+              {icon:"🗄️",title:"Database & SQL",desc:"MySQL, queries, joins, indexing, DB design — data is everywhere, learn to control it.",color:"#f472b6",tag:"In-Demand"},
+              {icon:"🔧",title:"Git & GitHub",desc:"Version control, branching, PRs, collaboration — every developer needs this.",color:"#f97316",tag:"Essential"},
+              {icon:"🧠",title:"DSA Masterclass",desc:"Arrays, Trees, Graphs, DP — FAANG interview prep included.",color:T.pink,tag:"Interview Prep"},
+              {icon:"☁️",title:"Cloud Computing",desc:"AWS, GCP, serverless, Docker basics — the future of all software.",color:"#818cf8",tag:"Future Ready"},
+              {icon:"🔐",title:"Cybersecurity",desc:"Ethical hacking, OWASP Top 10, Linux CLI, CTF basics, pentesting mindset.",color:T.purple,tag:"Hands-on"},
+              {icon:"🏆",title:"Competitive Programming",desc:"Greedy, D&C, Binary Search, Graphs — crack Codeforces and ICPC.",color:T.amber,tag:"Contest Ready"},
             ].map((f,i)=>(
               <div key={f.title} className="card card-h"
                 style={{padding:"clamp(18px,2.5vw,24px)",animation:`fadeUp .45s ease ${i*.08}s both`,
@@ -4936,12 +4995,12 @@ export default function App(){
         </button>
       )}
 
-      {page==="home"        &&<HomePage       setPage={navigate} courses={courses} user={user}/>}
+      {page==="home"        &&<HomePage       setPage={navigate} courses={courses} user={user} setWatch={setWatch}/>}
       {page==="login"       &&<AuthPage        initMode="login"    setPage={navigate} setUser={setUser}/>}
       {page==="register"    &&<AuthPage        initMode="register" setPage={navigate} setUser={setUser}/>}
       {page==="courses"     &&<CoursesPage     courses={courses} setPage={navigate} setWatch={setWatch}/>}
       {page==="watch"       &&<WatchPage       watch={watch} setWatch={setWatch} courses={courses} setPage={navigate} user={user}/>}
-      {page==="about"       &&<AboutPage       setPage={navigate}/>}
+      {page==="about"       &&<AboutPage       setPage={navigate} courses={courses}/>}
       {page==="notes"       &&<NotesPage       user={user} setPage={navigate}/>}
       {page==="notifications"&&user&&<NotificationsPage user={user} setPage={navigate}/>}
       {page==="profile"     &&user&&user.role!=="admin"&&<ProfilePage user={user} setUser={setUser} setPage={navigate}/>}
