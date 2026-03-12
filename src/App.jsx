@@ -1929,7 +1929,7 @@ function AboutPage({setPage,courses=[]}){
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:18,
             background:`${T.accent}0d`,border:`1px solid ${T.accent}33`,padding:"5px 14px",borderRadius:8}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"pulse 2s infinite"}}/>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY · EST. 2026</span>
           </div>
           <h1 style={{fontWeight:800,fontSize:"clamp(30px,6vw,58px)",letterSpacing:"-2px",lineHeight:1.05,marginBottom:18}}>
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
@@ -2235,7 +2235,7 @@ function PathEditorAdmin({courses}){
   );
 }
 
-function AdminPage({tab:initTab,courses,setCourses,setPage}){
+function AdminPage({tab:initTab,courses,setCourses,setPage,quizCounts={}}){
   const [tab,setTab]=useState(initTab||"overview");
   const [students,setStudents]=useState([]);
   const [editId,setEditId]=useState(null);
@@ -2468,7 +2468,7 @@ function AdminPage({tab:initTab,courses,setCourses,setPage}){
       )}
       {tab==="notes"&&<AdminNotesTab/>}
 
-      {tab==="quiz"&&<AdminQuizTab courses={courses}/>}
+      {tab==="quiz"&&<AdminQuizTab courses={courses} quizCounts={quizCounts}/>}
       {tab==="students"&&(
         <div className="afi">
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}}>
@@ -2900,45 +2900,122 @@ function ProfilePage({user,setUser,setPage}){
 }
 
 
-// ── Quiz Questions Cache (replaces STATIC_QUIZ) ──────────
-// Questions fetched from Firestore on demand, cached in memory
-// _quizCache: module-level so it persists across renders
-const _quizCache = {};   // { "c1_basic": [...200 questions] }
+// ── Quiz Questions Cache — Per-Test Lazy Loading ──────────
+//
+// SMART LOADING: Sirf 20 questions fetch karo — jo test khola hai wahi
+//
+// Doc IDs format (upload script ne banaya): c1_basic_0001 ... c1_basic_0200
+//   Test 1 → docs 0001-0020
+//   Test 2 → docs 0021-0040
+//   Test N → docs (N-1)*20+1 to N*20
+//
+// 3-tier cache: Memory → localStorage → Firebase
+// Cache per test — 20 questions ~4KB per test
+//
+// HS_QUIZ_VER bump karo jab questions update karne ho
+const HS_QUIZ_VER = "v1";
+const LS_KEY = (c,l,t) => `hs_q_${HS_QUIZ_VER}_${c}_${l}_t${t}`;
+const _quizCache = {};  // { "c1_basic_t1": [...20 questions] }
 
-async function fetchQuizQuestions(courseId, level) {
-  const key = `${courseId}_${level}`;
-  if (_quizCache[key] && _quizCache[key].length > 0) return _quizCache[key];
+function _lsGet(key) {
   try {
-    const snap = await getDocs(query(
-      collection(db, "quiz_questions"),
-      where("courseId", "==", courseId),
-      where("level", "==", level)
-    ));
-    const qs = snap.docs.map(d => ({ ...d.data(), _id: d.id }));
-    _quizCache[key] = qs;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch { return null; }
+}
+
+function _lsSet(key, qs) {
+  try {
+    localStorage.setItem(key, JSON.stringify(qs));
+  } catch {
+    // localStorage full — clear oldest hs_q_ entries
+    try {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith("hs_q_"));
+      // Remove first half of cached tests
+      keys.slice(0, Math.ceil(keys.length/2)).forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(key, JSON.stringify(qs));
+    } catch { /* silent fail */ }
+  }
+}
+
+// Fetch ONLY the 20 questions for a specific test
+// testNum: 1-10
+async function fetchTestQuestions(courseId, level, testNum) {
+  const cacheKey = `${courseId}_${level}_t${testNum}`;
+  const lsKey = LS_KEY(courseId, level, testNum);
+
+  // Tier 1: Memory
+  if (_quizCache[cacheKey] && _quizCache[cacheKey].length > 0)
+    return _quizCache[cacheKey];
+
+  // Tier 2: localStorage
+  const cached = _lsGet(lsKey);
+  if (cached) {
+    _quizCache[cacheKey] = cached;
+    return cached;
+  }
+
+  // Tier 3: Firebase — fetch only 20 docs by ID range
+  // Doc IDs: c1_basic_0001 to c1_basic_0020 for test 1
+  const start = (testNum - 1) * 20 + 1;
+  const end   = testNum * 20;
+  const docIds = [];
+  for (let i = start; i <= end; i++) {
+    docIds.push(`${courseId}_${level}_${String(i).padStart(4,"0")}`);
+  }
+
+  try {
+    // Fetch all 20 docs by their specific IDs — no query needed!
+    // Uses Promise.all for parallel fetching
+    const docSnaps = await Promise.all(
+      docIds.map(id => getDoc(doc(db, "quiz_questions", id)))
+    );
+    const qs = docSnaps
+      .filter(s => s.exists())
+      .map(s => ({ ...s.data(), _id: s.id }));
+
+    _quizCache[cacheKey] = qs;
+    _lsSet(lsKey, qs);
     return qs;
   } catch(e) {
-    console.error("fetchQuizQuestions error:", e);
+    console.error("fetchTestQuestions error:", e.message);
     return [];
   }
 }
 
-// Fetch counts for all courses — returns count map for React state
-async function fetchAllQuizCounts(courses) {
+// Legacy function — still used by admin panel to load all 200
+async function fetchQuizQuestions(courseId, level) {
+  const key = `${courseId}_${level}`;
+  if (_quizCache[key] && _quizCache[key].length > 0) return _quizCache[key];
+  try {
+    // Fetch all 10 tests in parallel (10 × 20 = 200 docs)
+    const allTests = await Promise.all(
+      Array.from({length:10},(_,i)=>fetchTestQuestions(courseId,level,i+1))
+    );
+    const all = allTests.flat();
+    _quizCache[key] = all;
+    return all;
+  } catch(e) {
+    console.error("fetchQuizQuestions error:", e.message);
+    return [];
+  }
+}
+
+// Quiz counts — HARDCODED (we uploaded exactly 200 per course/level)
+// Zero Firebase reads — instant, no quota usage!
+const QUIZ_COUNTS_PER_LEVEL = 200; // 200 questions per course per level
+const QUIZ_TESTS_PER_LEVEL  = 10;  // 200 / 20 = 10 tests
+
+function buildQuizCounts(courses) {
   const levels = ["basic","intermediate","advanced"];
   const counts = {};
-  const promises = [];
   for (const c of courses) {
     for (const lv of levels) {
-      const key = `${c.id}_${lv}`;
-      promises.push(
-        fetchQuizQuestions(c.id, lv).then(qs => {
-          counts[key] = qs.length;
-        }).catch(() => { counts[key] = 0; })
-      );
+      counts[`${c.id}_${lv}`] = QUIZ_COUNTS_PER_LEVEL;
     }
   }
-  await Promise.allSettled(promises);
   return counts;
 }
 
@@ -3212,9 +3289,8 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
     if(!user){setPage("login");return;}
     setLoading(true);
     try{
-      const allPool = await fetchQuizQuestions(course.id, level);
-      const chunks = chunkArr(allPool, 20);
-      const chunk = chunks[(testNum-1) % chunks.length] || allPool.slice(0,20);
+      // Fetch only 20 questions for this specific test — lazy loading!
+      const chunk = await fetchTestQuestions(course.id, level, testNum);
       const combined = shuffleArr([...chunk]).map(shuffleQ);
       setAllQs(combined);
     }catch(e){
@@ -3550,11 +3626,10 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             {allTestNums.map(testNum=>{
               const isStatic=testNum<=_staticCount;
-              const staticQs=[];
               const testName=getTestName(testNum);
               const key=`${selCourse.id}_${selLevel}_t${testNum}`;
               const prog=uProg[key];
-              const topics=isStatic?[...new Set(staticQs.map(q=>q.topic).filter(Boolean))]:[];
+              const topics=[];
               return(
                 <div key={testNum} className="card" style={{padding:"clamp(16px,3vw,22px)",
                   borderLeft:`3px solid ${prog?.best>=75?T.success:prog?T.amber:li.color}33`,
@@ -3583,7 +3658,7 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
                         </span>}
                       </div>
                       <div style={{fontSize:11,color:T.muted}}>
-                        {isStatic?`${staticQs.length} static questions`:`Custom test`}
+                        {isStatic?`20 questions`:`Custom test`}
                         {topics.length>0&&<span> · {topics.slice(0,3).join(", ")}{topics.length>3?`+${topics.length-3}`:""}</span>}
                       </div>
                     </div>
@@ -3785,7 +3860,7 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
   return null;
 }
 
-function AdminQuizTab({courses}){
+function AdminQuizTab({courses,quizCounts={}}){
   const [selC,  setSelC]  = useState(courses[0]?.id||"c1");
   const [selLv, setSelLv] = useState("basic");
   const [testMetas, setTestMetas] = useState([]);
@@ -3800,12 +3875,43 @@ function AdminQuizTab({courses}){
   const [newTestName, setNewTestName] = useState("");
   const [load, setLoad] = useState(false);
   const [toast, setToast] = useState("");
+  const [expandedTest, setExpandedTest] = useState(null); // testNum of expanded test
+  const [loadedStaticQs, setLoadedStaticQs] = useState({}); // {testNum: [...qs]}
+  const [loadingStatic, setLoadingStatic] = useState(false);
+  const formRef = useRef(null);
   const msg = t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
   const levels = ["basic","intermediate","advanced"];
 
-  // Admin uses testMetas from Firestore for test list — no need for local cache
-  const staticPool  = [];
-  const staticChunks = [];
+  // Static test count from quizCounts (fetched via COUNT query — cheap)
+  const _adminStaticCount = Math.floor((quizCounts[`${selC}_${selLv}`]||0)/20);
+  const staticChunks = Array.from({length:_adminStaticCount},(_,i)=>i);  // dummy array for length
+
+  // Load static questions for a specific test on demand
+  async function loadStaticQsForTest(testNum) {
+    if (loadedStaticQs[testNum]) return; // already loaded
+    setLoadingStatic(true);
+    try {
+      // Fetch only 20 questions for this test
+      const chunk = await fetchTestQuestions(selC, selLv, testNum);
+      setLoadedStaticQs(prev => ({...prev, [testNum]: chunk}));
+    } catch(e) {
+      console.error(e);
+    }
+    setLoadingStatic(false);
+  }
+
+  // When test expanded, load its static questions
+  useEffect(()=>{
+    if(expandedTest !== null) {
+      loadStaticQsForTest(expandedTest);
+    }
+  },[expandedTest, selC, selLv]);
+
+  // Reset expanded/loaded when course or level changes
+  useEffect(()=>{
+    setExpandedTest(null);
+    setLoadedStaticQs({});
+  },[selC, selLv]);
   const li = LEVEL_INFO[selLv];
 
   useEffect(()=>{
@@ -3825,12 +3931,12 @@ function AdminQuizTab({courses}){
   },[selC,selLv]);
 
   const allTests = [
-    ...staticChunks.map((qs,i)=>({
+    ...staticChunks.map((_,i)=>({
       testNum:i+1,
       name: testMetas.find(m=>m.testNum===i+1)?.name || `Test ${i+1}`,
       metaId: testMetas.find(m=>m.testNum===i+1)?.id || null,
       isStatic:true,
-      staticQs: qs,
+      staticQs: [],   // loaded on demand — use count for display
       customQs: questions.filter(q=>q.testNum===i+1),
     })),
     ...testMetas
@@ -3846,7 +3952,7 @@ function AdminQuizTab({courses}){
       })),
   ];
 
-  const nextTestNum = allTests.length>0 ? Math.max(...allTests.map(t=>t.testNum))+1 : staticChunks.length+1;
+  const nextTestNum = allTests.length>0 ? Math.max(...allTests.map(t=>t.testNum))+1 : _adminStaticCount+1;
 
   async function createTest(){
     if(!newTestName.trim()){msg("❌ Enter a test name.");return;}
@@ -3916,6 +4022,10 @@ function AdminQuizTab({courses}){
       }
       setQForm({q:"",opts:["","","",""],ans:0,topic:"",testNum:qForm.testNum});
       setQEditId(null);setShowQForm(false);
+      // Keep test expanded so admin can see the new question
+      setExpandedTest(qForm.testNum);
+      // Reload static questions if editing static
+      setLoadedStaticQs({});
     }catch(e){msg("❌ "+e.message);}
     setLoad(false);
   }
@@ -3999,7 +4109,7 @@ function AdminQuizTab({courses}){
         </div>
       )}
       {showQForm&&(
-        <div className="afu" style={{background:T.card,border:`1px solid ${li.color}33`,
+        <div ref={formRef} className="afu" style={{background:T.card,border:`1px solid ${li.color}33`,
           borderRadius:12,padding:"clamp(14px,2.5vw,22px)",marginBottom:16}}>
           <div style={{fontWeight:700,fontSize:13,color:li.color,marginBottom:12}}>
             {qEditId?"✏️ Edit Question":"➕ New Question"} — {li.icon} {li.label}
@@ -4091,9 +4201,19 @@ function AdminQuizTab({courses}){
       <div style={{display:"flex",flexDirection:"column",gap:16}}>
         {displayedTests.map(t=>(
           <div key={t.testNum} style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden"}}>
-            <div style={{background:T.bg3,padding:"clamp(12px,2vw,16px) clamp(14px,2.5vw,18px)",
+            <div
+              onClick={()=>{
+                if(editingTestId!==t.testNum){
+                  setExpandedTest(prev=>prev===t.testNum?null:t.testNum);
+                }
+              }}
+              style={{background:T.bg3,padding:"clamp(12px,2vw,16px) clamp(14px,2.5vw,18px)",
               display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
-              borderBottom:`1px solid ${T.border}`}}>
+              borderBottom:`1px solid ${T.border}`,
+              cursor:"pointer",userSelect:"none",
+              transition:"background .15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background=`${T.bg3}ee`}
+              onMouseLeave={e=>e.currentTarget.style.background=T.bg3}>
               <div style={{width:32,height:32,borderRadius:8,
                 background:`${li.color}15`,border:`1.5px solid ${li.color}33`,
                 display:"flex",alignItems:"center",justifyContent:"center",
@@ -4124,7 +4244,7 @@ function AdminQuizTab({courses}){
                   <span style={{fontWeight:700,fontSize:"clamp(13px,1.8vw,15px)"}}>{t.name}</span>
                   {t.isStatic&&<span style={{fontSize:10,color:T.muted,marginLeft:8,
                     fontFamily:"'JetBrains Mono',monospace"}}>
-                    {t.staticQs.length} static + {t.customQs.length} custom
+                    20 static + {t.customQs.length} custom
                   </span>}
                   {!t.isStatic&&<span style={{fontSize:10,color:T.muted,marginLeft:8,
                     fontFamily:"'JetBrains Mono',monospace"}}>
@@ -4133,19 +4253,22 @@ function AdminQuizTab({courses}){
                 </div>
               }
               {editingTestId!==t.testNum&&(
-                <div style={{display:"flex",gap:6,flexShrink:0}}>
-                  <button onClick={()=>{setEditingTestId(t.testNum);setEditingTestName(t.name);}}
+                <div style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
+                  <span style={{fontSize:12,color:T.muted,transition:"transform .2s",
+                    display:"inline-block",
+                    transform:expandedTest===t.testNum?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
+                  <button onClick={e=>{e.stopPropagation();setEditingTestId(t.testNum);setEditingTestName(t.name);}}
                     style={{padding:"5px 10px",fontSize:11,background:`${T.blue}15`,
                       color:T.blue,border:`1px solid ${T.blue}33`,borderRadius:6,cursor:"pointer"}}>
                     ✏️ Rename
                   </button>
-                  <button onClick={()=>{openAddQ(t.testNum);setShowQForm(true);setShowNewTest(false);}}
+                  <button onClick={e=>{e.stopPropagation();openAddQ(t.testNum);setShowQForm(true);setShowNewTest(false);setExpandedTest(t.testNum);setTimeout(()=>formRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),100);}}
                     style={{padding:"5px 10px",fontSize:11,background:`${T.success}15`,
                       color:T.success,border:`1px solid ${T.success}33`,borderRadius:6,cursor:"pointer"}}>
                     + Add Q
                   </button>
                   {!t.isStatic&&(
-                    <button onClick={()=>deleteTest(t)} className="btn-r"
+                    <button onClick={e=>{e.stopPropagation();deleteTest(t);}} className="btn-r"
                       style={{padding:"5px 10px",fontSize:11}}>
                       🗑
                     </button>
@@ -4153,20 +4276,25 @@ function AdminQuizTab({courses}){
                 </div>
               )}
             </div>
-            <div style={{padding:"clamp(10px,1.5vw,14px)"}}>
-              {t.isStatic&&t.staticQs.length>0&&(
+            {expandedTest===t.testNum&&<div style={{padding:"clamp(10px,1.5vw,14px)"}}>
+              {t.isStatic&&(
                 <div style={{marginBottom:t.customQs.length>0?10:0}}>
                   <div style={{fontSize:10,color:T.muted,fontFamily:"'JetBrains Mono',monospace",
-                    letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}}>
-                    Static Questions ({t.staticQs.length})
+                    letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",
+                    display:"flex",alignItems:"center",gap:8}}>
+                    Static Questions (20 per test)
+                    {loadingStatic&&<Spinner size={12}/>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {t.staticQs.map((q,qi)=>(
+                    {(loadedStaticQs[t.testNum]||[]).map((q,qi)=>(
                       <div key={qi} style={{background:T.bg3,borderRadius:8,
                         padding:"clamp(8px,1.5vw,11px) clamp(10px,2vw,14px)",
                         border:`1px solid ${T.border}`,
                         display:"flex",alignItems:"flex-start",gap:8}}>
                         <div style={{flex:1,opacity:.85}}>
+                          <div style={{fontSize:10,color:T.muted,fontFamily:"'JetBrains Mono',monospace",marginBottom:3}}>
+                            Q{qi+1} {q.topic&&`· ${q.topic}`}
+                          </div>
                           <div style={{fontSize:"clamp(11px,1.4vw,12px)",fontWeight:600,lineHeight:1.5,marginBottom:5}}>{q.q}</div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                             {q.opts.map((o,oi)=>(
@@ -4179,14 +4307,21 @@ function AdminQuizTab({courses}){
                             ))}
                           </div>
                         </div>
-                        <button onClick={()=>{openEditQ({...q,id:`static_${t.testNum}_${qi}`,testNum:t.testNum});setShowQForm(true);setShowNewTest(false);}}
+                        <button onClick={()=>{
+                            openEditQ({...q,id:`static_${t.testNum}_${qi}`,testNum:t.testNum});
+                            setShowQForm(true);setShowNewTest(false);
+                            setTimeout(()=>formRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),100);
+                          }}
                           title="Edit this question (saves as custom override)"
                           style={{padding:"4px 10px",fontSize:11,background:`${T.blue}15`,
                             color:T.blue,border:`1px solid ${T.blue}33`,borderRadius:6,cursor:"pointer",flexShrink:0}}>
-                          ✏️
+                          ✏️ Edit
                         </button>
                       </div>
                     ))}
+                    {(loadedStaticQs[t.testNum]||[]).length===0&&!loadingStatic&&(
+                      <div style={{color:T.muted,fontSize:11,padding:"8px 0"}}>Loading questions...</div>
+                    )}
                   </div>
                 </div>
               )}
@@ -4247,7 +4382,7 @@ function AdminQuizTab({courses}){
                   No questions yet. Use "+ Add Q" to add some.
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         ))}
       </div>
@@ -4925,10 +5060,8 @@ export default function App(){
           : snap.docs.map(d=>({...d.data(),id:d.id}));
         setCourses(list);
         setBooting(false);
-        // Fetch quiz counts from Firebase → triggers re-render with real data
-        fetchAllQuizCounts(list).then(counts => {
-          setQuizCounts(counts);
-        }).catch(()=>{});
+        // Set quiz counts instantly — no Firebase reads needed
+        setQuizCounts(buildQuizCounts(list));
       },
       ()=>{setCourses(SEED_COURSES);setBooting(false);}
     );
@@ -5012,7 +5145,7 @@ export default function App(){
       {page==="placement"   &&<JobPlacementPage setPage={navigate}/>}
       {["admin","admin-courses","admin-notes","admin-quiz","admin-students"].includes(page)&&user?.role==="admin"&&
         <AdminPage tab={page==="admin-courses"?"courses":page==="admin-notes"?"notes":page==="admin-quiz"?"quiz":page==="admin-students"?"students":"overview"}
-          courses={courses} setCourses={setCourses} setPage={navigate}/>
+          courses={courses} setCourses={setCourses} setPage={navigate} quizCounts={quizCounts}/>
       }
     </>
   );
