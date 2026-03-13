@@ -496,40 +496,32 @@ async function getProgress(uid){
   return snap.exists()?snap.data():{};
 }
 async function seedCoursesIfNeeded(){
-  if(sessionStorage.getItem("hs_seeded_v5"))return;
-  sessionStorage.setItem("hs_seeded_v5","1");
-  // Har course individually check karo — missing ones add karo, order field update karo
-  for(const c of SEED_COURSES){
-    const ref=doc(db,"courses",c.id);
-    const existing=await getDoc(ref);
-    if(!existing.exists()){
-      await setDoc(ref,{...c,createdAt:serverTimestamp()});
-    } else {
-      // order field update karo agar nahi hai
-      if(existing.data().order===undefined){
-        await setDoc(ref,{order:c.order},{merge:true});
-      }
-    }
-  }
-  // Learning paths — fixed IDs taaki updateDoc kaam kare
-  const SEED_PATHS=[
-    {id:"fp1",name:"Foundations",icon:"💡",color:"#34d399",desc:"Computer basics, OS, hardware",courseIds:["c7"],order:0},
-    {id:"fp2",name:"Networking",icon:"🌍",color:"#60a5fa",desc:"TCP/IP, protocols, subnetting",courseIds:["c8"],order:1},
-    {id:"fp3",name:"Linux",icon:"🐧",color:"#fb923c",desc:"Terminal, shell, scripting",courseIds:["c9"],order:2},
-    {id:"fp4",name:"Programming",icon:"⌨️",color:"#00f5c4",desc:"Python, C++",courseIds:["c1","c2"],order:3},
-    {id:"fp5",name:"Web Dev",icon:"🌐",color:"#f0437a",desc:"HTML, CSS, JavaScript",courseIds:["c3"],order:4},
-    {id:"fp6",name:"Database",icon:"🗄️",color:"#f472b6",desc:"SQL, MySQL, DB design",courseIds:["c10"],order:5},
-    {id:"fp7",name:"DevTools",icon:"🔧",color:"#f97316",desc:"Git, GitHub, version control",courseIds:["c11"],order:6},
-    {id:"fp8",name:"DSA",icon:"🧠",color:"#f59e0b",desc:"Data structures & algorithms",courseIds:["c4"],order:7},
-    {id:"fp9",name:"Cloud",icon:"☁️",color:"#818cf8",desc:"AWS, GCP, serverless",courseIds:["c12"],order:8},
-    {id:"fp10",name:"Cybersecurity",icon:"🔐",color:"#a855f7",desc:"Hacking, CTF, pentesting",courseIds:["c5"],order:9},
-    {id:"fp11",name:"Competitive",icon:"🏆",color:"#22d3ee",desc:"CP, Codeforces, ICPC",courseIds:["c6"],order:10},
-  ];
-  for(const p of SEED_PATHS){
-    const ref=doc(db,"learning_paths",p.id);
-    const existing=await getDoc(ref);
-    if(!existing.exists()) await setDoc(ref,{...p,createdAt:serverTimestamp()});
-  }
+  // localStorage flag — sirf pehli baar kabhi run hoga (0 reads after first time)
+  if(localStorage.getItem("hs_seeded_v6"))return;
+  try{
+    // Ek saath saare courses batch write (setDoc with merge — no read needed)
+    const batch_promises = SEED_COURSES.map(c=>
+      setDoc(doc(db,"courses",c.id),{...c,createdAt:serverTimestamp()},{merge:true})
+    );
+    const SEED_PATHS=[
+      {id:"fp1",name:"Foundations",icon:"💡",color:"#34d399",desc:"Computer basics, OS, hardware",courseIds:["c7"],order:0},
+      {id:"fp2",name:"Networking",icon:"🌍",color:"#60a5fa",desc:"TCP/IP, protocols, subnetting",courseIds:["c8"],order:1},
+      {id:"fp3",name:"Linux",icon:"🐧",color:"#fb923c",desc:"Terminal, shell, scripting",courseIds:["c9"],order:2},
+      {id:"fp4",name:"Programming",icon:"⌨️",color:"#00f5c4",desc:"Python, C++",courseIds:["c1","c2"],order:3},
+      {id:"fp5",name:"Web Dev",icon:"🌐",color:"#f0437a",desc:"HTML, CSS, JavaScript",courseIds:["c3"],order:4},
+      {id:"fp6",name:"Database",icon:"🗄️",color:"#f472b6",desc:"SQL, MySQL, DB design",courseIds:["c10"],order:5},
+      {id:"fp7",name:"DevTools",icon:"🔧",color:"#f97316",desc:"Git, GitHub, version control",courseIds:["c11"],order:6},
+      {id:"fp8",name:"DSA",icon:"🧠",color:"#f59e0b",desc:"Data structures & algorithms",courseIds:["c4"],order:7},
+      {id:"fp9",name:"Cloud",icon:"☁️",color:"#818cf8",desc:"AWS, GCP, serverless",courseIds:["c12"],order:8},
+      {id:"fp10",name:"Cybersecurity",icon:"🔐",color:"#a855f7",desc:"Hacking, CTF, pentesting",courseIds:["c5"],order:9},
+      {id:"fp11",name:"Competitive",icon:"🏆",color:"#22d3ee",desc:"CP, Codeforces, ICPC",courseIds:["c6"],order:10},
+    ];
+    const path_promises = SEED_PATHS.map(p=>
+      setDoc(doc(db,"learning_paths",p.id),{...p,createdAt:serverTimestamp()},{merge:true})
+    );
+    await Promise.all([...batch_promises,...path_promises]);
+    localStorage.setItem("hs_seeded_v6","1");
+  }catch(e){ console.error("Seed error:",e.message); }
 }
 
 function Spinner({size=18}){return <span className="spin" style={{width:size,height:size}}/>;}
@@ -773,11 +765,27 @@ function PathSection({courses,setPage,user,setWatch}){
   const msg=t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
 
   useEffect(()=>{
-    const unsub=onSnapshot(collection(db,"learning_paths"),snap=>{
-      const data=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
-      setPaths(data);setLoaded(true);
-    },()=>setLoaded(true));
-    return unsub;
+    async function loadPaths(){
+      // Try localStorage first
+      try{
+        const cached=localStorage.getItem("hs_paths_v1");
+        if(cached){
+          const data=JSON.parse(cached);
+          if(data&&data.length>0){setPaths(data);setLoaded(true);}
+        }
+      }catch{}
+      // Fetch fresh from Firebase
+      try{
+        const snap=await getDocs(collection(db,"learning_paths"));
+        const data=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
+        if(data.length>0){
+          localStorage.setItem("hs_paths_v1",JSON.stringify(data));
+          setPaths(data);
+        }
+      }catch{}
+      setLoaded(true);
+    }
+    loadPaths();
   },[]);
 
   const FALLBACK=[
@@ -818,13 +826,18 @@ function PathSection({courses,setPage,user,setWatch}){
         await addDoc(collection(db,"learning_paths"),{...form,order:paths.length,createdAt:serverTimestamp()});
         msg("✅ Path created!");
       }else{
-        // Har path ka Firebase mein real ID hai (fb1,fb2... ya auto-generated)
         await updateDoc(doc(db,"learning_paths",editPath.id),{
           name:form.name, icon:form.icon, color:form.color,
           desc:form.desc, courseIds:form.courseIds
         });
         msg("✅ Path updated!");
       }
+      localStorage.removeItem("hs_paths_v1");
+      // Reload paths
+      const pSnap=await getDocs(collection(db,"learning_paths"));
+      const pData=pSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
+      localStorage.setItem("hs_paths_v1",JSON.stringify(pData));
+      setPaths(pData);
       setEditPath(null);
     }catch(e){msg("❌ "+e.message);}
     setSaving(false);
@@ -1929,7 +1942,7 @@ function AboutPage({setPage,courses=[]}){
           <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:18,
             background:`${T.accent}0d`,border:`1px solid ${T.accent}33`,padding:"5px 14px",borderRadius:8}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:T.accent,animation:"pulse 2s infinite"}}/>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY · EST. 2026</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:T.accent,letterSpacing:2}}>FREE CODING UNIVERSITY</span>
           </div>
           <h1 style={{fontWeight:800,fontSize:"clamp(30px,6vw,58px)",letterSpacing:"-2px",lineHeight:1.05,marginBottom:18}}>
             We Believe <span className="gt">Every Student</span><br/>Deserves World-Class Education
@@ -2096,12 +2109,29 @@ function PathEditorAdmin({courses}){
   const ICONS=["⌨️","🌐","🧠","🔐","🏆","🚀","⚡","🎯","📱","🤖"];
 
   useEffect(()=>{
-    const unsub=onSnapshot(collection(db,"learning_paths"),snap=>{
-      const data=snap.docs.map(d=>({id:d.id,...d.data()}));
-      setPaths(data.sort((a,b)=>(a.order||0)-(b.order||0)));
+    async function load(){
+      // Try localStorage first
+      try{
+        const cached=localStorage.getItem("hs_paths_v1");
+        if(cached){
+          const data=JSON.parse(cached);
+          if(data&&data.length>0){
+            setPaths(data.sort((a,b)=>(a.order||0)-(b.order||0)));
+            setLoading(false);
+            return;
+          }
+        }
+      }catch{}
+      try{
+        const snap=await getDocs(collection(db,"learning_paths"));
+        const data=snap.docs.map(d=>({id:d.id,...d.data()}));
+        const sorted=data.sort((a,b)=>(a.order||0)-(b.order||0));
+        localStorage.setItem("hs_paths_v1",JSON.stringify(sorted));
+        setPaths(sorted);
+      }catch{}
       setLoading(false);
-    },()=>setLoading(false));
-    return unsub;
+    }
+    load();
   },[]);
 
   const msg=t=>{setToast(t);setTimeout(()=>setToast(""),3000);};
@@ -2118,6 +2148,13 @@ function PathEditorAdmin({courses}){
         msg("✅ Path created");
       }
       setShowForm(false);setEditIdx(null);setForm({name:"",icon:"⌨️",color:"#00f5c4",desc:"",courseIds:[]});
+      // Update paths from Firebase and refresh cache
+      try{
+        const rSnap=await getDocs(collection(db,"learning_paths"));
+        const rData=rSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
+        localStorage.setItem("hs_paths_v1",JSON.stringify(rData));
+        setPaths(rData);
+      }catch{}
     }catch(e){msg("❌ Error: "+e.message);}
     setSaving(false);
   }
@@ -2255,18 +2292,25 @@ function AdminPage({tab:initTab,courses,setCourses,setPage,quizCounts={}}){
   useEffect(()=>{
     if(tab!=="students")return;
     setStudErr("");
-    const sc=sessionStorage.getItem("hs_students");
-    if(sc){try{setStudents(JSON.parse(sc));return;}catch{}}
-    getDocs(collection(db,"users"))
-      .then(snap=>{
+    async function loadStudents(){
+      try{
+        const cached=localStorage.getItem("hs_students_v1");
+        if(cached){
+          const {data,ts}=JSON.parse(cached);
+          if(Date.now()-ts < 60*60*1000){ setStudents(data); return; }
+        }
+      }catch{}
+      try{
+        const snap=await getDocs(collection(db,"users"));
         const all=snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
-        sessionStorage.setItem("hs_students",JSON.stringify(all));
+        localStorage.setItem("hs_students_v1",JSON.stringify({data:all,ts:Date.now()}));
         setStudents(all);
-      })
-      .catch(e=>{
-        setStudErr("⚠️ Firestore rules: 'users' collection read is not allowed for admin. Please update the rules below.");
+      }catch(e){
+        setStudErr("⚠️ Firestore rules: 'users' collection read not allowed. Update security rules.");
         console.error("Students fetch error:",e);
-      });
+      }
+    }
+    loadStudents();
   },[tab]);
 
   async function addCourse(){
@@ -2276,7 +2320,10 @@ function AdminPage({tab:initTab,courses,setCourses,setPage,quizCounts={}}){
       const id=`c_${Date.now()}`;
       const data={...newC,id,instructor:"HackingSum Team",videos:[],createdAt:serverTimestamp()};
       await setDoc(doc(db,"courses",id),data);
-      setCourses(p=>[...p,{...data,createdAt:new Date()}]);
+      // Update localStorage cache with new course
+      const updatedCourses = [...courses, {...data, createdAt:new Date()}].sort((a,b)=>(a.order??99)-(b.order??99));
+      localStorage.setItem("hs_courses_v1", JSON.stringify(updatedCourses));
+      setCourses(updatedCourses);
       setNewC({title:"",category:"Programming",level:"Beginner",description:"",icon:"📘",color:"#00f5c4"});
       setShowNC(false);msg("✅ Course created!");
     }catch(e){msg("❌ "+e.message,"error");}
@@ -2287,7 +2334,9 @@ function AdminPage({tab:initTab,courses,setCourses,setPage,quizCounts={}}){
     setLoad(true);
     try{
       await deleteDoc(doc(db,"courses",id));
-      setCourses(p=>p.filter(c=>c.id!==id));
+      const updatedCourses = courses.filter(c=>c.id!==id);
+      localStorage.setItem("hs_courses_v1", JSON.stringify(updatedCourses));
+      setCourses(updatedCourses);
       if(editId===id)setEditId(null);
       setDelId(null);msg("🗑 Course deleted.");
     }catch(e){msg("❌ "+e.message,"error");}
@@ -2552,12 +2601,9 @@ function NotesPage({user,setPage}){
   const cats=["All","Python","C++","Web Dev","DSA","Cybersecurity","CP","Computer Fundamentals","Networking","Linux","Database","Git","Cloud","General"];
 
   useEffect(()=>{
-    const q=query(collection(db,"notes"),orderBy("createdAt","desc"));
-    const unsub=onSnapshot(q,snap=>{
-      setNotes(snap.docs.map(d=>({id:d.id,...d.data()})));
-      setLoad(false);
-    },()=>setLoad(false));
-    return unsub;
+    getDocs(query(collection(db,"notes"),orderBy("createdAt","desc")))
+      .then(snap=>{setNotes(snap.docs.map(d=>({id:d.id,...d.data()})));setLoad(false);})
+      .catch(()=>setLoad(false));
   },[]);
 
   const filtered=notes.filter(n=>
@@ -2650,9 +2696,9 @@ function AdminNotesTab(){
   const catColor={Python:T.accent,"C++":T.blue,"Web Dev":T.pink,DSA:T.amber,Cybersecurity:T.purple,CP:T.cyan,General:T.muted2};
 
   useEffect(()=>{
-    const q=query(collection(db,"notes"),orderBy("createdAt","desc"));
-    const unsub=onSnapshot(q,snap=>setNotes(snap.docs.map(d=>({id:d.id,...d.data()}))));
-    return unsub;
+    getDocs(query(collection(db,"notes"),orderBy("createdAt","desc")))
+      .then(snap=>setNotes(snap.docs.map(d=>({id:d.id,...d.data()}))))
+      .catch(()=>{});
   },[]);
 
   async function addNote(){
@@ -2746,12 +2792,21 @@ function NotificationsPage({user,setPage}){
   });
 
   useEffect(()=>{
-    const q=query(collection(db,"notifications"),orderBy("createdAt","desc"));
-    const unsub=onSnapshot(q,snap=>{
-      setNotifs(snap.docs.map(d=>({id:d.id,...d.data()})));
+    async function loadNotifs(){
+      try{
+        const cached=localStorage.getItem("hs_notifs_v1");
+        if(cached){
+          const {data,ts}=JSON.parse(cached);
+          if(Date.now()-ts < 5*60*1000){ setNotifs(data); setLoad(false); return; }
+        }
+        const snap=await getDocs(query(collection(db,"notifications"),orderBy("createdAt","desc")));
+        const data=snap.docs.map(d=>({id:d.id,...d.data()}));
+        localStorage.setItem("hs_notifs_v1",JSON.stringify({data,ts:Date.now()}));
+        setNotifs(data);
+      }catch{}
       setLoad(false);
-    },()=>setLoad(false));
-    return unsub;
+    }
+    loadNotifs();
   },[]);
 
   const markAllRead=()=>{
@@ -3075,10 +3130,9 @@ function QuizProgressPage({user,courses,setPage,quizCounts={}}){
 
   useEffect(()=>{
     if(!user){setLoading(false);return;}
-    const unsub=onSnapshot(doc(db,"quiz_progress",user.uid),
-      snap=>{setUProg(snap.exists()?snap.data():{});setLoading(false);},
-      ()=>setLoading(false));
-    return unsub;
+    getDoc(doc(db,"quiz_progress",user.uid))
+      .then(snap=>{setUProg(snap.exists()?snap.data():{});setLoading(false);})
+      .catch(()=>setLoading(false));
   },[user?.uid]);
 
   if(!user) return(
@@ -3280,9 +3334,9 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
 
   useEffect(()=>{
     if(!user)return;
-    const unsub=onSnapshot(doc(db,"quiz_progress",user.uid),
-      snap=>{if(snap.exists())setUProg(snap.data());},()=>{});
-    return unsub;
+    getDoc(doc(db,"quiz_progress",user.uid))
+      .then(snap=>{if(snap.exists())setUProg(snap.data());})
+      .catch(()=>{});
   },[user?.uid]);
 
   async function startTest(course,level,testNum){
@@ -3333,11 +3387,10 @@ function QuizPage({user,courses,setPage,quizCounts={}}){
 
   useEffect(()=>{
     if(!selCourse||!selLevel)return;
-    const unsub=onSnapshot(
-      query(collection(db,"quiz_tests"),
-        where("courseId","==",selCourse.id),where("level","==",selLevel)),
-      snap=>setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
-    return unsub;
+    getDocs(query(collection(db,"quiz_tests"),
+      where("courseId","==",selCourse.id),where("level","==",selLevel)))
+      .then(snap=>setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()}))))
+      .catch(()=>{});
   },[selCourse?.id, selLevel]);
 
   function getTestName(testNum){
@@ -3915,19 +3968,20 @@ function AdminQuizTab({courses,quizCounts={}}){
   const li = LEVEL_INFO[selLv];
 
   useEffect(()=>{
-    const unsub=onSnapshot(
-      query(collection(db,"quiz_tests"),
-        where("courseId","==",selC),where("level","==",selLv)),
-      snap=>setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
-    return unsub;
-  },[selC,selLv]);
-
-  useEffect(()=>{
-    const unsub=onSnapshot(
-      query(collection(db,"quiz_questions"),
-        where("courseId","==",selC),where("level","==",selLv)),
-      snap=>setQuestions(snap.docs.map(d=>({id:d.id,...d.data()}))),()=>{});
-    return unsub;
+    async function loadAdminData(){
+      try{
+        const snap=await getDocs(query(collection(db,"quiz_tests"),
+          where("courseId","==",selC),where("level","==",selLv)));
+        setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()})));
+      }catch{}
+      try{
+        const snap=await getDocs(query(collection(db,"quiz_questions"),
+          where("courseId","==",selC),where("level","==",selLv),
+          where("createdAt","!=",null)));  // only admin-added questions
+        setQuestions(snap.docs.map(d=>({id:d.id,...d.data()})));
+      }catch{}
+    }
+    loadAdminData();
   },[selC,selLv]);
 
   const allTests = [
@@ -3964,6 +4018,10 @@ function AdminQuizTab({courses,quizCounts={}}){
       });
       msg(`✅ "${newTestName.trim()}" test created successfully!`);
       setNewTestName("");setShowNewTest(false);
+      // Reload testMetas
+      const snap=await getDocs(query(collection(db,"quiz_tests"),
+        where("courseId","==",selC),where("level","==",selLv)));
+      setTestMetas(snap.docs.map(d=>({id:d.id,...d.data()})));
     }catch(e){msg("❌ "+e.message);}
     setLoad(false);
   }
@@ -4022,17 +4080,40 @@ function AdminQuizTab({courses,quizCounts={}}){
       }
       setQForm({q:"",opts:["","","",""],ans:0,topic:"",testNum:qForm.testNum});
       setQEditId(null);setShowQForm(false);
-      // Keep test expanded so admin can see the new question
       setExpandedTest(qForm.testNum);
-      // Reload static questions if editing static
       setLoadedStaticQs({});
+      // Clear quiz localStorage cache for this course+level so users get fresh questions
+      const qCacheKey = `hs_q_${HS_QUIZ_VER}_${selC}_${selLv}_t${qForm.testNum}`;
+      localStorage.removeItem(qCacheKey);
+      delete _quizCache[`${selC}_${selLv}_t${qForm.testNum}`];
+      // Reload admin custom questions list
+      try{
+        const snap=await getDocs(query(collection(db,"quiz_questions"),
+          where("courseId","==",selC),where("level","==",selLv),
+          where("createdAt","!=",null)));
+        setQuestions(snap.docs.map(d=>({id:d.id,...d.data()})));
+      }catch{}
     }catch(e){msg("❌ "+e.message);}
     setLoad(false);
   }
 
-  async function delQ(id){
+  async function delQ(id, testNum){
     if(!window.confirm("Delete this question?"))return;
-    try{await deleteDoc(doc(db,"quiz_questions",id));msg("🗑 Deleted.");}
+    try{
+      await deleteDoc(doc(db,"quiz_questions",id));
+      msg("🗑 Deleted.");
+      // Clear cache for this test
+      if(testNum){
+        const qCacheKey = `hs_q_${HS_QUIZ_VER}_${selC}_${selLv}_t${testNum}`;
+        localStorage.removeItem(qCacheKey);
+        delete _quizCache[`${selC}_${selLv}_t${testNum}`];
+      }
+      // Reload questions
+      const snap=await getDocs(query(collection(db,"quiz_questions"),
+        where("courseId","==",selC),where("level","==",selLv),
+        where("createdAt","!=",null)));
+      setQuestions(snap.docs.map(d=>({id:d.id,...d.data()})));
+    }
     catch(e){msg("❌ "+e.message);}
   }
 
@@ -4365,7 +4446,7 @@ function AdminQuizTab({courses,quizCounts={}}){
                               color:T.blue,border:`1px solid ${T.blue}33`,borderRadius:6,cursor:"pointer"}}>
                             ✏️
                           </button>
-                          <button onClick={()=>delQ(q.id)} className="btn-r"
+                          <button onClick={()=>delQ(q.id, q.testNum)} className="btn-r"
                             style={{padding:"4px 10px",fontSize:11}}>
                             🗑
                           </button>
@@ -4397,22 +4478,29 @@ function LeaderboardPage({user,courses,setPage}){
   const [tab,setTab]=useState("overall");
 
   useEffect(()=>{
-    async function load(){
-      const cached=sessionStorage.getItem("hs_lb");
-      if(cached){try{const d=JSON.parse(cached);setStudents(d.students);setProgMap(d.prog);setLoad(false);return;}catch{}}
+    async function loadLB(){
+      // localStorage cache — 2 hours TTL
+      try{
+        const cached=localStorage.getItem("hs_lb_v1");
+        if(cached){
+          const {students,prog,ts}=JSON.parse(cached);
+          if(Date.now()-ts < 2*60*60*1000){
+            setStudents(students);setProgMap(prog);setLoad(false);return;
+          }
+        }
+      }catch{}
       try{
         const uSnap=await getDocs(collection(db,"users"));
         const pSnap=await getDocs(collection(db,"progress"));
-        const users=uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
+        const students=uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role!=="admin");
         const prog={};
         pSnap.docs.forEach(d=>prog[d.id]=d.data());
-        sessionStorage.setItem("hs_lb",JSON.stringify({students:users,prog}));
-        setStudents(users);
-        setProgMap(prog);
-      }catch(e){}
+        localStorage.setItem("hs_lb_v1",JSON.stringify({students,prog,ts:Date.now()}));
+        setStudents(students);setProgMap(prog);
+      }catch{}
       setLoad(false);
     }
-    load();
+    loadLB();
   },[]);
 
   const totalVideos=courses.reduce((a,c)=>a+c.videos.length,0);
@@ -5051,32 +5139,67 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    seedCoursesIfNeeded().catch(()=>{});
-    const q=query(collection(db,"courses"),orderBy("createdAt"));
-    const unsub=onSnapshot(q,
-      snap=>{
-        const list = snap.empty
-          ? SEED_COURSES
-          : snap.docs.map(d=>({...d.data(),id:d.id}));
+    async function loadCourses(){
+      // Step 1: localStorage se instant load (0 Firebase reads)
+      try{
+        const lsRaw = localStorage.getItem("hs_courses_v1");
+        if(lsRaw){
+          const list = JSON.parse(lsRaw);
+          if(list&&list.length>0){
+            setCourses(list);
+            setQuizCounts(buildQuizCounts(list));
+            setBooting(false);
+            // Seed aur background refresh — silently
+            seedCoursesIfNeeded().catch(()=>{});
+            bgRefreshCourses();
+            return;
+          }
+        }
+      }catch{}
+      // Step 2: Fresh fetch (pehli baar ya cache clear)
+      try{
+        await seedCoursesIfNeeded();
+        const snap=await getDocs(query(collection(db,"courses"),orderBy("createdAt")));
+        const list=snap.empty?SEED_COURSES:snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(a.order??99)-(b.order??99));
+        localStorage.setItem("hs_courses_v1",JSON.stringify(list));
         setCourses(list);
-        setBooting(false);
-        // Set quiz counts instantly — no Firebase reads needed
         setQuizCounts(buildQuizCounts(list));
-      },
-      ()=>{setCourses(SEED_COURSES);setBooting(false);}
-    );
-    return unsub;
+      }catch{
+        setCourses(SEED_COURSES);
+        setQuizCounts(buildQuizCounts(SEED_COURSES));
+      }
+      setBooting(false);
+    }
+    async function bgRefreshCourses(){
+      try{
+        const snap=await getDocs(query(collection(db,"courses"),orderBy("createdAt")));
+        if(!snap.empty){
+          const list=snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(a.order??99)-(b.order??99));
+          localStorage.setItem("hs_courses_v1",JSON.stringify(list));
+          setCourses(list);
+        }
+      }catch{}
+    }
+    loadCourses();
   },[]);
 
   useEffect(()=>{
-    const q=query(collection(db,"notifications"),orderBy("createdAt","desc"));
-    const unsub=onSnapshot(q,snap=>{
+    async function loadNotifCount(){
       try{
+        // Cache notif count for 30 min
+        const cached=localStorage.getItem("hs_notif_cache");
+        if(cached){
+          const {count,ts}=JSON.parse(cached);
+          if(Date.now()-ts < 30*60*1000){ setNotifCount(count); return; }
+        }
+        const snap=await getDocs(query(collection(db,"notifications"),orderBy("createdAt","desc")));
         const readIds=JSON.parse(localStorage.getItem("hs_read")||"[]");
-        setNotifCount(snap.docs.filter(d=>!readIds.includes(d.id)).length);
+        const count=snap.docs.filter(d=>!readIds.includes(d.id)).length;
+        setNotifCount(count);
+        localStorage.setItem("hs_notif_cache",JSON.stringify({count,ts:Date.now()}));
       }catch{setNotifCount(0);}
-    },()=>{});
-    return unsub;
+    }
+    loadNotifCount();
   },[]);
 
   function logout(){signOut(auth);setUser(null);window.history.pushState({page:"home"},"","/");setPage("home");setHistory(["home"]);}
